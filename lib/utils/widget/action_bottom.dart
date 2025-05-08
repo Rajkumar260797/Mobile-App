@@ -192,16 +192,21 @@ class Action_Bottom {
                         // }
                         await prefs.setString('last_checkout_address', '');
                         await prefs.setString('last_lat_lng', '');
+                        await prefs.setBool('with_event', false);
+
                         await prefs.setString(
-                              'last_lat_lng',
-                              '${position.latitude},${position.longitude}',
-                            );
+                          'last_lat_lng',
+                          '${position.latitude},${position.longitude}',
+                        );
                         // if (!isCheckedIn) {
                         //   onStatusUpdate?.call(true);
                         // } else {
                         //   onStatusUpdate?.call(false);
                         // }
                       } else {
+                        print(response);
+                        print("@@@@");
+                        print(response['message']);
                         Warning.show(context, response['message'], 'Warning');
                       }
                     }
@@ -357,7 +362,8 @@ class Action_Bottom {
                             //   onTrackingStarted?.call();
                             // }
                             await prefs.setString('last_checkout_address', '');
-                            
+                            await prefs.setBool('with_event', false);
+
                             await prefs.setString(
                               'last_lat_lng',
                               '${_position.latitude},${_position.longitude}',

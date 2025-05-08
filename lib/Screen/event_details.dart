@@ -458,6 +458,7 @@ class _EventDetailsState extends State<EventDetails> {
                                                       response['message']['message'],
                                                       "Success",
                                                     );
+                                                    await prefs.setBool('with_event', true);
                                                     _fetchData(); // refresh
                                                   } else if (response['message']['status'] ==
                                                       "error") {

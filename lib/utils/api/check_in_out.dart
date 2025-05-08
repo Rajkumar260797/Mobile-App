@@ -20,6 +20,8 @@ class Check{
         },
       );
       var data = json.decode(response.body);
+      print(data);
+      print("########");
 
       if (response.statusCode == 200) {
         return {
@@ -40,8 +42,13 @@ class Check{
       final SharedPreferences prefs = await SharedPreferences.getInstance();
 
       token = prefs.getString('token');
+      print(await prefs.getBool('with_event'));
+      print(await prefs.getString('last_lat_lng'));
+      final with_event = await prefs.getBool('with_event');
+      final last_lat_lng = await prefs.getString('last_lat_lng');
+
       var response = await http.get(
-        Uri.parse('$methodapiUrl.checkout?user=$id&lat=$lat&lng=$lng&address=${Uri.encodeComponent(address)}&lastCheckoutAddress=$lastCheckoutAddress&distance=$distance&office_type=$type&"location_logs": locationLogs,'),
+        Uri.parse('$methodapiUrl.checkout?user=$id&lat=$lat&lng=$lng&address=${Uri.encodeComponent(address)}&lastCheckoutAddress=$lastCheckoutAddress&distance=$distance&office_type=$type&"location_logs": locationLogs&with_event=$with_event&last_lat_lng=$last_lat_lng'),
         headers: {
           "Authorization": token ?? "",
         },
@@ -54,7 +61,7 @@ class Check{
       status = "Warning"; // permission-related or validation issue
     } else if (response.statusCode == 400 || response.statusCode == 500) {
       status = "Error"; // bad request or server error
-    } else if (message.contains("already checked out")) {
+    } else if (message.contains("Already checked out")) {
       status = "Warning";
     } else if (message.contains("CheckIn Already Exists")) {
       status = "Warning";
