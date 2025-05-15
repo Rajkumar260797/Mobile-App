@@ -32,7 +32,45 @@ class Event {
     }
   }
 
+static Future<List<dynamic>> HistoryList(String usr) async {
+  final prefs = await SharedPreferences.getInstance();
+  final String? token = prefs.getString('token');
+
+  if (token == null || token.isEmpty) {
+    throw Exception("Authorization token missing.");
+  }
+
+  try {
+    final response = await http
+        .get(
+          Uri.parse('$URL.history_list?user=$usr'),
+          headers: {
+            "Authorization": token,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+        )
+        .timeout(const Duration(seconds: 10));
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+
+      if (data.containsKey('exc') && data['exc'] != null) {
+        throw Exception("Frappe Error: ${data['exc']}");
+      }
+
+      return data['message'];
+    } else {
+      throw Exception("Failed to load History: ${response.statusCode}");
+    }
+  } catch (e) {
+    throw Exception("Error fetching events: $e");
+  }
+}
+
+
   static eventdetails(String id) async {
+    print('6666666666666666');
     final prefs = await SharedPreferences.getInstance();
     final String? token = prefs.getString('token');
     try {

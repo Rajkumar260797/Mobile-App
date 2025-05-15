@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:homegenie/Screen/event_details.dart';
+import 'package:homegenie/Screen/history_list.dart';
+import 'package:homegenie/Screen/history_overview.dart';
 import 'package:homegenie/Screen/login.dart';
 import 'event_list.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -367,6 +369,16 @@ class _HomescreenState extends State<Homescreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => EventsPage()),
+                );
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.history, color: Colors.blueAccent),
+              title: Text('History'),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => HistoryList()),
                 );
               },
             ),
