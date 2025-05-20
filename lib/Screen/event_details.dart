@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/api/event.dart';
 import '../utils/widget/location_tracker.dart';
 import '../utils/widget/warning.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../utils/api/location_api.dart';
 
@@ -165,6 +167,47 @@ class _EventDetailsState extends State<EventDetails> {
     return true;
   }
 
+  // void launchDialer(String phoneNumber) async {
+  //   final Uri dialUri = Uri(scheme: 'tel', path: phoneNumber);
+  //   if (await canLaunchUrl(dialUri)) {
+  //     await launchUrl(dialUri,mode: LaunchMode.externalApplication,);
+  //   } else {
+  //     throw 'Could not launch $dialUri';
+  //   }
+  // }
+
+  void launchDialer(String phoneNumber) async {
+  final Uri dialUri = Uri(scheme: 'tel', path: phoneNumber);
+  print('Trying to launch: $dialUri');
+  if (await canLaunchUrl(dialUri)) {
+    print('Can launch, trying...');
+    await launchUrl(
+      dialUri,
+      mode: LaunchMode.externalApplication,
+    );
+    print('Dialer launched');
+  } else {
+    print('Cannot launch $dialUri');
+  }
+}
+
+
+  void openWhatsAppChat(String phoneNumber) async {
+    final cleanedNumber = phoneNumber.replaceAll(RegExp(r'\D'), '');
+    final formattedNumber =
+        cleanedNumber.startsWith('91') ? cleanedNumber : '91$cleanedNumber';
+
+    final uri = Uri.parse('whatsapp://send?phone=$formattedNumber');
+
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('WhatsApp not installed or cannot open.')),
+      );
+    }
+  }
+
   bool _isTodayEvent() {
     if (eventData['event']['starts_on'] == null) return false;
 
@@ -175,6 +218,105 @@ class _EventDetailsState extends State<EventDetails> {
         eventDate.month == now.month &&
         eventDate.day == now.day;
   }
+Future<bool> showOTPDialog(BuildContext context) async {
+  TextEditingController otpController = TextEditingController();
+  int timerSeconds = 30;
+  Timer? resendTimer;
+
+  Future<void> sendOtp() async {
+    await Event.sendOtp(widget.eventid);
+  }
+
+  await sendOtp(); // Initial OTP send
+
+  return await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext dialogContext) {
+      return StatefulBuilder(
+        builder: (context, setState) {
+          // Start the timer inside the builder so we have access to setState
+          void startTimer() {
+            resendTimer?.cancel();
+            resendTimer = Timer.periodic(Duration(seconds: 1), (timer) {
+              if (timerSeconds == 0) {
+                timer.cancel();
+              } else {
+                setState(() {
+                  timerSeconds--;
+                });
+              }
+            });
+          }
+
+          // Start timer on first build only
+          if (resendTimer == null) {
+            startTimer();
+          }
+
+          return AlertDialog(
+            title: const Text('Enter OTP to Confirm'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: otpController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'OTP'),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  timerSeconds > 0
+                      ? 'Resend OTP in $timerSeconds sec'
+                      : 'Didn’t receive it?',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                TextButton(
+                  onPressed: timerSeconds == 0
+                      ? () async {
+                          await sendOtp();
+                          setState(() {
+                            timerSeconds = 30;
+                          });
+                          startTimer(); // restart timer
+                        }
+                      : null,
+                  child: const Text('Resend OTP'),
+                )
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  resendTimer?.cancel();
+                  Navigator.of(dialogContext).pop(false);
+                },
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final isValid = await Event.verifyOtp(
+                      otpController.text, widget.eventid);
+                  if (isValid) {
+                    resendTimer?.cancel();
+                    Navigator.of(dialogContext).pop(true);
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Invalid OTP')),
+                    );
+                  }
+                },
+                child: const Text('Submit'),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  ).then((value) => value ?? false);
+}
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -325,424 +467,492 @@ class _EventDetailsState extends State<EventDetails> {
                         Expanded(
                           child: TabBarView(
                             children: [
-                              SingleChildScrollView(
-                                physics: const AlwaysScrollableScrollPhysics(),
-                                padding: const EdgeInsets.all(16),
-                                child: Container(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.center,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
+                              RefreshIndicator(
 
-                                        children: [
-                                          SizedBox(height: 250),
-
-                                          GestureDetector(
-                                            onTap: () async {
-                                              setState(() {
-                                                _isActionInProgress = true;
-                                              });
-                                              if (!_isTodayEvent()) {
-                                                Warning.show(
-                                                  context,
-                                                  'You can only check in/out on the event day.',
-                                                  'Invalid Date',
-                                                );
-                                                return;
-                                              }
-
-                                              final userEmail = prefs.getString(
-                                                'email',
-                                              ); // or userId
-                                              final eventId = widget.eventid;
-                                              String? checkIn =
-                                                  eventData['event']['custom_check_in'];
-                                              String? checkOut =
-                                                  eventData['event']['custom_check_out'];
-
-                                              Position position;
-                                              try {
-                                                bool serviceEnabled =
-                                                    await Geolocator.isLocationServiceEnabled();
-                                                if (!serviceEnabled) {
-                                                  ScaffoldMessenger.of(
+                                onRefresh: _fetchData,
+                                child: SingleChildScrollView(
+                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  padding: const EdgeInsets.all(16),
+                                  child: Container(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                
+                                          children: [
+                                            SizedBox(height: 250),
+                                
+                                            GestureDetector(
+                                              onTap: () async {
+                                                setState(() {
+                                                  _isActionInProgress = true;
+                                                });
+                                                if (!_isTodayEvent()) {
+                                                  Warning.show(
                                                     context,
-                                                  ).showSnackBar(
-                                                    SnackBar(
-                                                      content: Text(
-                                                        "Location services are disabled.",
-                                                      ),
-                                                    ),
+                                                    'You can only check in/out on the event day.',
+                                                    'Invalid Date',
                                                   );
                                                   return;
                                                 }
-
-                                                LocationPermission permission =
-                                                    await Geolocator.checkPermission();
-                                                if (permission ==
-                                                    LocationPermission.denied) {
-                                                  permission =
-                                                      await Geolocator.requestPermission();
-                                                  if (permission ==
-                                                      LocationPermission
-                                                          .denied) {
+                                
+                                                final userEmail = prefs.getString(
+                                                  'email',
+                                                ); // or userId
+                                                final eventId = widget.eventid;
+                                                String? checkIn =
+                                                    eventData['event']['custom_check_in'];
+                                                String? checkOut =
+                                                    eventData['event']['custom_check_out'];
+                                
+                                                Position position;
+                                                try {
+                                                  bool serviceEnabled =
+                                                      await Geolocator.isLocationServiceEnabled();
+                                                  if (!serviceEnabled) {
                                                     ScaffoldMessenger.of(
                                                       context,
                                                     ).showSnackBar(
                                                       SnackBar(
                                                         content: Text(
-                                                          "Location permission denied.",
+                                                          "Location services are disabled.",
                                                         ),
                                                       ),
                                                     );
                                                     return;
                                                   }
-                                                }
-
-                                                if (permission ==
-                                                    LocationPermission
-                                                        .deniedForever) {
-                                                  ScaffoldMessenger.of(
-                                                    context,
-                                                  ).showSnackBar(
-                                                    SnackBar(
-                                                      content: Text(
-                                                        "Location permission permanently denied.",
-                                                      ),
-                                                    ),
-                                                  );
-                                                  return;
-                                                }
-                                                bool hasPermission =
-                                                    await _handleLocationPermission();
-                                                if (!hasPermission) return;
-
-                                                position =
-                                                    await Geolocator.getCurrentPosition(
-                                                      desiredAccuracy:
-                                                          LocationAccuracy.high,
-                                                    );
-                                                double lat = position.latitude;
-                                                double lng = position.longitude;
-                                                final address =
-                                                    await LocationHelper.getAddressFromCoordinates(
-                                                      lat,
-                                                      lng,
-                                                    );
-
-                                                final working_hrs =
-                                                    _calculateWorkingHours(
-                                                      eventData['event']['custom_check_in'],
-                                                      DateTime.now().toString(),
-                                                    );
-                                                if ((checkIn == null ||
-                                                        checkIn.isEmpty) &&
-                                                    (checkOut == null ||
-                                                        checkOut.isEmpty)) {
-                                                  final response =
-                                                      await Event.eventCheckin(
-                                                        userEmail,
-                                                        eventId,
-                                                        lat,
-                                                        lng,
-                                                        address,
-                                                      );
-
-                                                  if (response['message']['status'] ==
-                                                      "success") {
-                                                    Warning.show(
-                                                      context,
-                                                      response['message']['message'],
-                                                      "Success",
-                                                    );
-                                                    await prefs.setBool('with_event', true);
-                                                    _fetchData(); // refresh
-                                                  } else if (response['message']['status'] ==
-                                                      "error") {
-                                                    Warning.show(
-                                                      context,
-                                                      response['message']['message'],
-                                                      "Error",
-                                                    );
-                                                  }
-                                                } else if ((checkIn != null &&
-                                                        checkIn.isNotEmpty) &&
-                                                    (checkOut == null ||
-                                                        checkOut.isEmpty)) {
-                                                  LocationTrackerService.stopTracking();
-                                                  double distance =
-                                                      LocationTrackerService.calculateTotalDistance();
-
-                                                  String
-                                                  formattedDistanceWithUnit;
-
-                                                  if (distance >= 1000) {
-                                                    double km = distance / 1000;
-                                                    formattedDistanceWithUnit =
-                                                        '${km.toStringAsFixed(2)} km';
-                                                  } else {
-                                                    formattedDistanceWithUnit =
-                                                        '${distance.toStringAsFixed(2)} m';
-                                                  }
-
-                                                  List<LatLng> path =
-                                                      LocationTrackerService.getTrackedPoints();
-
-                                                  // 3. Convert to JSON-friendly format
-                                                  List<Map<String, dynamic>>
-                                                  locationLogs =
-                                                      path
-                                                          .map(
-                                                            (latLng) => {
-                                                              'latitude':
-                                                                  latLng
-                                                                      .latitude,
-                                                              'longitude':
-                                                                  latLng
-                                                                      .longitude,
-                                                            },
-                                                          )
-                                                          .toList();
-
-                                                  final last_lat_lng =
-                                                      prefs.getString(
-                                                        'last_lat_lng',
-                                                      ) ??
-                                                      '';
-
-                                                  final response =
-                                                      await Event.eventCheckout(
-                                                        userEmail,
-                                                        eventId,
-                                                        lat,
-                                                        lng,
-                                                        address,
-                                                        working_hrs,
-                                                        formattedDistanceWithUnit,
-                                                        last_lat_lng,
-                                                        jsonEncode(
-                                                          locationLogs,
+                                
+                                                  LocationPermission permission =
+                                                      await Geolocator.checkPermission();
+                                                  if (permission ==
+                                                      LocationPermission.denied) {
+                                                    permission =
+                                                        await Geolocator.requestPermission();
+                                                    if (permission ==
+                                                        LocationPermission
+                                                            .denied) {
+                                                      ScaffoldMessenger.of(
+                                                        context,
+                                                      ).showSnackBar(
+                                                        SnackBar(
+                                                          content: Text(
+                                                            "Location permission denied.",
+                                                          ),
                                                         ),
                                                       );
-
-                                                  if (response['message']['status'] ==
-                                                      "success") {
-                                                    LocationTrackerService.startTracking(
-                                                      start: LatLng(
-                                                        position.latitude,
-                                                        position.longitude,
+                                                      return;
+                                                    }
+                                                  }
+                                
+                                                  if (permission ==
+                                                      LocationPermission
+                                                          .deniedForever) {
+                                                    ScaffoldMessenger.of(
+                                                      context,
+                                                    ).showSnackBar(
+                                                      SnackBar(
+                                                        content: Text(
+                                                          "Location permission permanently denied.",
+                                                        ),
                                                       ),
                                                     );
-
+                                                    return;
+                                                  }
+                                                  bool hasPermission =
+                                                      await _handleLocationPermission();
+                                                  if (!hasPermission) return;
+                                
+                                                  position =
+                                                      await Geolocator.getCurrentPosition(
+                                                        desiredAccuracy:
+                                                            LocationAccuracy.high,
+                                                      );
+                                                  double lat = position.latitude;
+                                                  double lng = position.longitude;
+                                                  final address =
+                                                      await LocationHelper.getAddressFromCoordinates(
+                                                        lat,
+                                                        lng,
+                                                      );
+                                
+                                                  final working_hrs =
+                                                      _calculateWorkingHours(
+                                                        eventData['event']['custom_check_in'],
+                                                        DateTime.now().toString(),
+                                                      );
+                                                  if ((checkIn == null ||
+                                                          checkIn.isEmpty) &&
+                                                      (checkOut == null ||
+                                                          checkOut.isEmpty)) {
+                                                    final response =
+                                                        await Event.eventCheckin(
+                                                          userEmail,
+                                                          eventId,
+                                                          lat,
+                                                          lng,
+                                                          address,
+                                                        );
+                                
+                                                    if (response['message']['status'] ==
+                                                        "success") {
+                                                      Warning.show(
+                                                        context,
+                                                        response['message']['message'],
+                                                        "Success",
+                                                      );
+                                                      await prefs.setBool(
+                                                        'with_event',
+                                                        true,
+                                                      );
+                                                      _fetchData(); // refresh
+                                                    } else if (response['message']['status'] ==
+                                                        "error") {
+                                                      Warning.show(
+                                                        context,
+                                                        response['message']['message'],
+                                                        "Error",
+                                                      );
+                                                    }
+                                                  } else if ((checkIn != null &&
+                                                          checkIn.isNotEmpty) &&
+                                                      (checkOut == null ||
+                                                          checkOut.isEmpty)) {
+                                
+                                                    bool confirmed = await showOTPDialog(context);
+                                
+                                                    if (!confirmed) {
+                                                      Warning.show(context, "OTP verification failed. Cannot proceed.", "Error");
+                                                      return;
+                                                    }
+                                
+                                
+                                                    LocationTrackerService.stopTracking();
+                                                    double distance =
+                                                        LocationTrackerService.calculateTotalDistance();
+                                
+                                                    String
+                                                    formattedDistanceWithUnit;
+                                
+                                                    if (distance >= 1000) {
+                                                      double km = distance / 1000;
+                                                      formattedDistanceWithUnit =
+                                                          '${km.toStringAsFixed(2)} km';
+                                                    } else {
+                                                      formattedDistanceWithUnit =
+                                                          '${distance.toStringAsFixed(2)} m';
+                                                    }
+                                
+                                                    List<LatLng> path =
+                                                        LocationTrackerService.getTrackedPoints();
+                                
+                                                    // 3. Convert to JSON-friendly format
+                                                    List<Map<String, dynamic>>
+                                                    locationLogs =
+                                                        path
+                                                            .map(
+                                                              (latLng) => {
+                                                                'latitude':
+                                                                    latLng
+                                                                        .latitude,
+                                                                'longitude':
+                                                                    latLng
+                                                                        .longitude,
+                                                              },
+                                                            )
+                                                            .toList();
+                                
+                                                    final last_lat_lng =
+                                                        prefs.getString(
+                                                          'last_lat_lng',
+                                                        ) ??
+                                                        '';
+                                
+                                                    final response =
+                                                        await Event.eventCheckout(
+                                                          userEmail,
+                                                          eventId,
+                                                          lat,
+                                                          lng,
+                                                          address,
+                                                          working_hrs,
+                                                          formattedDistanceWithUnit,
+                                                          last_lat_lng,
+                                                          jsonEncode(
+                                                            locationLogs,
+                                                          ),
+                                                        );
+                                
+                                                    if (response['message']['status'] ==
+                                                        "success") {
+                                                      LocationTrackerService.startTracking(
+                                                        start: LatLng(
+                                                          position.latitude,
+                                                          position.longitude,
+                                                        ),
+                                                      );
+                                
+                                                      Warning.show(
+                                                        context,
+                                                        response['message']['message'],
+                                                        "Success",
+                                                      );
+                                                      await prefs.setString(
+                                                        'last_checkout_address',
+                                                        address,
+                                                      );
+                                
+                                                      await prefs.setString(
+                                                        'last_lat_lng',
+                                
+                                                        '$lat,$lng',
+                                                      );
+                                
+                                                      _fetchData(); // refresh
+                                                    }
+                                                  } else {
                                                     Warning.show(
                                                       context,
-                                                      response['message']['message'],
-                                                      "Success",
+                                                      "Already checked in and out",
+                                                      "",
                                                     );
-                                                    await prefs.setString(
-                                                      'last_checkout_address',
-                                                      address,
-                                                    );
-
-                                                    await prefs.setString(
-                                                      'last_lat_lng',
-
-                                                      '$lat,$lng',
-                                                    );
-
-                                                    _fetchData(); // refresh
                                                   }
-                                                } else {
+                                                } catch (e) {
+                                                  print("Location error: $e");
                                                   Warning.show(
                                                     context,
-                                                    "Already checked in and out",
-                                                    "",
+                                                    "Failed to get location",
+                                                    "Error",
                                                   );
+                                                } finally {
+                                                  setState(() {
+                                                    _isActionInProgress = false;
+                                                  });
                                                 }
-                                              } catch (e) {
-                                                print("Location error: $e");
-                                                Warning.show(
-                                                  context,
-                                                  "Failed to get location",
-                                                  "Error",
-                                                );
-                                              } finally {
-                                                setState(() {
-                                                  _isActionInProgress = false;
-                                                });
-                                              }
-                                            },
-
-                                            child: Stack(
-                                              alignment: Alignment.center,
-                                              children: [
-                                                CircleAvatar(
-                                                  radius: 80,
-                                                  backgroundColor:
-                                                      getActionColor(),
-                                                  child: CircleAvatar(
-                                                    radius: 60,
+                                              },
+                                
+                                              child: Stack(
+                                                alignment: Alignment.center,
+                                                children: [
+                                                  CircleAvatar(
+                                                    radius: 80,
                                                     backgroundColor:
-                                                        const Color.fromARGB(
-                                                          255,
-                                                          221,
-                                                          217,
-                                                          217,
-                                                        ),
+                                                        getActionColor(),
                                                     child: CircleAvatar(
-                                                      radius: 40,
+                                                      radius: 60,
                                                       backgroundColor:
                                                           const Color.fromARGB(
-                                                            231,
-                                                            175,
-                                                            173,
-                                                            173,
+                                                            255,
+                                                            221,
+                                                            217,
+                                                            217,
                                                           ),
-                                                      child: Icon(
-                                                        Icons.touch_app,
-                                                        color: Colors.white,
+                                                      child: CircleAvatar(
+                                                        radius: 40,
+                                                        backgroundColor:
+                                                            const Color.fromARGB(
+                                                              231,
+                                                              175,
+                                                              173,
+                                                              173,
+                                                            ),
+                                                        child: Icon(
+                                                          Icons.touch_app,
+                                                          color: Colors.white,
+                                                        ),
                                                       ),
                                                     ),
                                                   ),
-                                                ),
-                                                if (_isActionInProgress)
-                                                  SizedBox(
-                                                    height: 40,
-                                                    width: 40,
-                                                    child:
-                                                        CircularProgressIndicator(
-                                                          color: Colors.white,
-                                                          strokeWidth: 3,
-                                                        ),
-                                                  ),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      Text(getButtonLabel()),
-                                      SizedBox(height: 20),
-                                      Container(
-                                        padding: EdgeInsets.all(20),
-                                        decoration: BoxDecoration(
-                                          color: Colors.grey[200],
-                                          borderRadius: BorderRadius.circular(
-                                            12.0,
-                                          ),
-
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withOpacity(
-                                                0.2,
-                                              ),
-                                              blurRadius: 10,
-                                              spreadRadius: 2,
-                                              // offset: Offset(3, 5),
-                                            ),
-                                          ],
-                                        ),
-                                        child: Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Column(
-                                              children: [
-                                                Icon(Icons.timer),
-                                                Text(
-                                                  _formatTime(
-                                                    eventData['event']['custom_check_in'],
-                                                  ),
-                                                ),
-                                                Text("Check In"),
-                                              ],
-                                            ),
-                                            Column(
-                                              children: [
-                                                Icon(Icons.timer),
-                                                Text(
-                                                  _formatTime(
-                                                    eventData['event']['custom_check_out'],
-                                                  ),
-                                                ),
-                                                Text("Check Out"),
-                                              ],
-                                            ),
-                                            Container(
-                                              width: 90,
-                                              child: Column(
-                                                children: [
-                                                  Icon(Icons.timer),
-                                                  Text(
-                                                    _calculateWorkingHours(
-                                                      eventData['event']['custom_check_in'],
-                                                      eventData['event']['custom_check_out'],
+                                                  if (_isActionInProgress)
+                                                    SizedBox(
+                                                      height: 40,
+                                                      width: 40,
+                                                      child:
+                                                          CircularProgressIndicator(
+                                                            color: Colors.white,
+                                                            strokeWidth: 3,
+                                                          ),
                                                     ),
-                                                  ),
-
-                                                  Text("Working Hrs"),
                                                 ],
                                               ),
                                             ),
                                           ],
                                         ),
-                                      ),
-                                    ],
+                                        Text(getButtonLabel()),
+                                        SizedBox(height: 20),
+                                        Container(
+                                          padding: EdgeInsets.all(20),
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey[200],
+                                            borderRadius: BorderRadius.circular(
+                                              12.0,
+                                            ),
+                                
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withOpacity(
+                                                  0.2,
+                                                ),
+                                                blurRadius: 10,
+                                                spreadRadius: 2,
+                                                // offset: Offset(3, 5),
+                                              ),
+                                            ],
+                                          ),
+                                          child: Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Column(
+                                                children: [
+                                                  Icon(Icons.timer),
+                                                  Text(
+                                                    _formatTime(
+                                                      eventData['event']['custom_check_in'],
+                                                    ),
+                                                  ),
+                                                  Text("Check In"),
+                                                ],
+                                              ),
+                                              Column(
+                                                children: [
+                                                  Icon(Icons.timer),
+                                                  Text(
+                                                    _formatTime(
+                                                      eventData['event']['custom_check_out'],
+                                                    ),
+                                                  ),
+                                                  Text("Check Out"),
+                                                ],
+                                              ),
+                                              Container(
+                                                width: 90,
+                                                child: Column(
+                                                  children: [
+                                                    Icon(Icons.timer),
+                                                    Text(
+                                                      _calculateWorkingHours(
+                                                        eventData['event']['custom_check_in'],
+                                                        eventData['event']['custom_check_out'],
+                                                      ),
+                                                    ),
+                                
+                                                    Text("Working Hrs"),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
-                              SingleChildScrollView(
-                                physics: const AlwaysScrollableScrollPhysics(),
-                                padding: const EdgeInsets.all(16),
-                                child: Container(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      SizedBox(height: 20),
+                              RefreshIndicator(
 
-                                      Text(
-                                        'Name:${eventData['event']['name']}',
-                                      ),
-                                      SizedBox(height: 20),
-                                      Text(
-                                        (eventData['reference_details'] !=
+                                onRefresh: _fetchData,
+                                child: SingleChildScrollView(
+                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  padding: const EdgeInsets.all(16),
+                                  child: Container(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        SizedBox(height: 20),
+                                
+                                        Text(
+                                          'Name:${eventData['event']['name']}',
+                                        ),
+                                        SizedBox(height: 20),
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                (eventData['reference_details'] !=
+                                                            null &&
+                                                        eventData['reference_details']
+                                                            .isNotEmpty &&
+                                                        eventData['reference_details'][0]['contact_mobile'] !=
+                                                            null &&
+                                                        eventData['reference_details'][0]['contact_mobile']
+                                                            .toString()
+                                                            .isNotEmpty)
+                                                    ? 'Mobile Number: ${eventData['reference_details'][0]['contact_mobile']}'
+                                                    : 'Mobile Number: null',
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            if (eventData['reference_details'] !=
                                                     null &&
                                                 eventData['reference_details']
-                                                    .isNotEmpty)
-                                            ? 'Mobile Number: ${eventData['reference_details'][0]['contact_mobile'] ?? 'null'}'
-                                            : 'Mobile Number: null',
-                                      ),
-                                      SizedBox(height: 20),
-
-                                      Text('Title:${_getParticipantsTitles()}'),
-                                      SizedBox(height: 20),
-                                      Text(
-                                        (eventData['reference_details'] !=
+                                                    .isNotEmpty &&
+                                                eventData['reference_details'][0]['contact_mobile'] !=
                                                     null &&
-                                                eventData['reference_details']
+                                                eventData['reference_details'][0]['contact_mobile']
+                                                    .toString()
                                                     .isNotEmpty)
-                                            ? 'Product Enquired:${eventData['reference_details'][0]['custom_product_enquired']}'
-                                            : 'Product Enquired:null',
-                                      ),
-                                      SizedBox(height: 20),
-
-                                      Text(
-                                        'Event Type:${eventData['event']['event_type']}',
-                                      ),
-                                      SizedBox(height: 20),
-
-                                      Text(
-                                        'Subject:${eventData['event']['subject']}',
-                                      ),
-                                      SizedBox(height: 20),
-
-                                      Text(
-                                        'Owner:${eventData['event']['owner']}',
-                                      ),
-                                    ],
+                                              Row(
+                                                children: [
+                                                  IconButton(
+                                                    icon: const Icon(Icons.call),
+                                                    onPressed: () {
+                                                      final phone =
+                                                          eventData['reference_details'][0]['contact_mobile'];
+                                                      launchDialer(phone);
+                                                    },
+                                                  ),
+                                                  IconButton(
+                                                    icon: FaIcon(
+                                                      FontAwesomeIcons.whatsapp,
+                                                      color: Colors.green,
+                                                    ),
+                                
+                                                    onPressed: () {
+                                                      final phone =
+                                                          eventData['reference_details'][0]['contact_mobile'];
+                                                      openWhatsAppChat(phone);
+                                                    },
+                                                  ),
+                                                ],
+                                              ),
+                                          ],
+                                        ),
+                                
+                                        SizedBox(height: 20),
+                                
+                                        Text('Title:${_getParticipantsTitles()}'),
+                                        SizedBox(height: 20),
+                                        Text(
+                                          (eventData['reference_details'] !=
+                                                      null &&
+                                                  eventData['reference_details']
+                                                      .isNotEmpty)
+                                              ? 'Product Enquired:${eventData['reference_details'][0]['custom_product_enquired']}'
+                                              : 'Product Enquired:null',
+                                        ),
+                                        SizedBox(height: 20),
+                                
+                                        Text(
+                                          'Event Type:${eventData['event']['event_type']}',
+                                        ),
+                                        SizedBox(height: 20),
+                                
+                                        Text(
+                                          'Subject:${eventData['event']['subject']}',
+                                        ),
+                                        SizedBox(height: 20),
+                                
+                                        Text(
+                                          'Owner:${eventData['event']['owner']}',
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),

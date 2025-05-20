@@ -204,9 +204,6 @@ class Action_Bottom {
                         //   onStatusUpdate?.call(false);
                         // }
                       } else {
-                        print(response);
-                        print("@@@@");
-                        print(response['message']);
                         Warning.show(context, response['message'], 'Warning');
                       }
                     }

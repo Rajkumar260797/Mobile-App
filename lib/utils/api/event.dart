@@ -31,8 +31,7 @@ class Event {
       throw Exception("Error fetching events: $e");
     }
   }
-
-static Future<List<dynamic>> HistoryList(String usr) async {
+static Future<List<dynamic>> HistoryList(String usr, String fromDate, String toDate) async {
   final prefs = await SharedPreferences.getInstance();
   final String? token = prefs.getString('token');
 
@@ -41,24 +40,24 @@ static Future<List<dynamic>> HistoryList(String usr) async {
   }
 
   try {
-    final response = await http
-        .get(
-          Uri.parse('$URL.history_list?user=$usr'),
-          headers: {
-            "Authorization": token,
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-          },
-        )
-        .timeout(const Duration(seconds: 10));
+    final url = Uri.parse(
+      '$URL.history_list?user=$usr&from_date=$fromDate&to_date=$toDate',
+    );
+
+    final response = await http.get(
+      url,
+      headers: {
+        "Authorization": token,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+    ).timeout(const Duration(seconds: 10));
 
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
-
       if (data.containsKey('exc') && data['exc'] != null) {
         throw Exception("Frappe Error: ${data['exc']}");
       }
-
       return data['message'];
     } else {
       throw Exception("Failed to load History: ${response.statusCode}");
@@ -70,7 +69,6 @@ static Future<List<dynamic>> HistoryList(String usr) async {
 
 
   static eventdetails(String id) async {
-    print('6666666666666666');
     final prefs = await SharedPreferences.getInstance();
     final String? token = prefs.getString('token');
     try {
@@ -250,7 +248,57 @@ static Future<List<dynamic>> HistoryList(String usr) async {
       },
       headers: {'Authorization': token ?? ''},
     );
-    print(response.body);
     return json.decode(response.body);
   }
+
+  static Future<void> sendOtp(event_id) async {
+    final prefs = await SharedPreferences.getInstance();
+  final token = prefs.getString('token');
+
+  final response = await http.get(
+    Uri.parse('$URL.send_otp?event_id=$event_id'),
+    headers: {
+      'Authorization': token!,
+    },
+  );
+
+  if (response.statusCode != 200) {
+    throw Exception("Failed to send OTP");
+  }
+  }
+
+  static Future<bool> verifyOtp(String otp, String eventId) async {
+  final prefs = await SharedPreferences.getInstance();
+  final token = prefs.getString('token');
+
+  if (token == null || token.isEmpty) return false;
+
+  try {
+    final response = await http.post(
+      Uri.parse('$URL.verify_otp'),
+      headers: {
+        'Authorization': token,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: jsonEncode({
+        'otp': otp,
+        'event_id': eventId,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data['message']['status'] == 'success';
+    } else {
+      return false;
+    }
+  } catch (e) {
+    print("OTP verification error: $e");
+    return false;
+  }
+}
+
+
+
 }

@@ -90,7 +90,7 @@ class EventCard extends StatelessWidget {
 
 
               Container(
-                width: cardWidth * 0.15,
+                width: cardWidth * 0.13,
                 alignment: Alignment.topRight,
                 child: SizedBox(
                   height: 35,

@@ -54,6 +54,8 @@ dependencies:
   web_socket_channel: ^3.0.2
   overlay_support: ^2.1.0
   mockito: ^5.4.5
+  url_launcher: ^6.2.5
+  font_awesome_flutter: ^10.7.0
   # flutter_background_geolocation: ^4.16.9
 
 dev_dependencies:

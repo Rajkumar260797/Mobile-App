@@ -20,8 +20,7 @@ class Check{
         },
       );
       var data = json.decode(response.body);
-      print(data);
-      print("########");
+
 
       if (response.statusCode == 200) {
         return {
