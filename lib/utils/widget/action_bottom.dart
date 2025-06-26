@@ -64,6 +64,9 @@ class Action_Bottom {
     VoidCallback? onTrackingStarted,
     VoidCallback? onTrackingStopped,
     Function(bool isNowCheckedIn)? onStatusUpdate,
+      Function()? onApiStart,
+  Function()? onApiEnd,
+    
   }) {
     return showAdaptiveActionSheet(
       context: context,
@@ -106,6 +109,9 @@ class Action_Bottom {
                         isCheckedIn: isCheckedIn,
                         onTrackingStarted: onTrackingStarted,
                         onTrackingStopped: onTrackingStopped,
+                          onApiStart: onApiStart,
+  onApiEnd: onApiEnd,
+                        
                       );
                     } else {
                       final SharedPreferences prefs =
@@ -130,6 +136,7 @@ class Action_Bottom {
                           prefs.getString('last_checkout_address') ?? '';
 
                       var response;
+                      onApiStart?.call();
                       if (isCheckedIn) {
                         LocationTrackerService.stopTracking();
                         double returnDistance =
@@ -178,6 +185,7 @@ class Action_Bottom {
                           option,
                         );
                       }
+                      onApiEnd?.call();
 
                       if (response?['status'] == "Success") {
                         Warning.show(context, response['message'], 'Success');
@@ -221,6 +229,8 @@ class Action_Bottom {
     required bool isCheckedIn,
     VoidCallback? onTrackingStarted,
     VoidCallback? onTrackingStopped,
+      Function()? onApiStart,
+  Function()? onApiEnd,
   }) {
     return showAdaptiveActionSheet(
       context: context,
@@ -294,6 +304,7 @@ class Action_Bottom {
                               prefs.getString('last_checkout_address') ?? '';
 
                           var response;
+                          onApiStart?.call();
                           if (isCheckedIn) {
                             // LocationTrackerService.stopTracking();
                             // onTrackingStopped?.call();
@@ -342,6 +353,7 @@ class Action_Bottom {
                               option,
                             );
                           }
+                          onApiEnd?.call();
 
                           if (response?['status'] == "Success") {
                             Warning.show(

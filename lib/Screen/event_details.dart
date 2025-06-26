@@ -299,11 +299,20 @@ Future<bool> showOTPDialog(BuildContext context) async {
                       otpController.text, widget.eventid);
                   if (isValid) {
                     resendTimer?.cancel();
-                    Navigator.of(dialogContext).pop(true);
+                    Navigator.of(dialogContext).pop(true);  // close dialog first
+
+ScaffoldMessenger.of(context).showSnackBar(
+  const SnackBar(content: Text('OTP Verified')),
+);
+
                   } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Invalid OTP')),
-                    );
+
+                    Warning.show(
+                                                    context,
+                                                    'Invalid OTP',
+                                                    'Error',
+                                                  );
+                    
                   }
                 },
                 child: const Text('Submit'),
@@ -620,13 +629,19 @@ Future<bool> showOTPDialog(BuildContext context) async {
                                                           checkIn.isNotEmpty) &&
                                                       (checkOut == null ||
                                                           checkOut.isEmpty)) {
+
+                                                            bool isOtpRequired = await Event.checkIfOtpRequired(widget.eventid);
+
+  if (isOtpRequired) {
+    bool confirmed = await showOTPDialog(context);
+
+    if (!confirmed) {
+      Warning.show(context, "OTP verification failed. Cannot proceed.", "Error");
+      return;
+    }
+  }
                                 
-                                                    bool confirmed = await showOTPDialog(context);
-                                
-                                                    if (!confirmed) {
-                                                      Warning.show(context, "OTP verification failed. Cannot proceed.", "Error");
-                                                      return;
-                                                    }
+                                                    
                                 
                                 
                                                     LocationTrackerService.stopTracking();
@@ -684,7 +699,6 @@ Future<bool> showOTPDialog(BuildContext context) async {
                                                             locationLogs,
                                                           ),
                                                         );
-                                
                                                     if (response['message']['status'] ==
                                                         "success") {
                                                       LocationTrackerService.startTracking(
@@ -723,7 +737,7 @@ Future<bool> showOTPDialog(BuildContext context) async {
                                                   print("Location error: $e");
                                                   Warning.show(
                                                     context,
-                                                    "Failed to get location",
+                                                    "$e",
                                                     "Error",
                                                   );
                                                 } finally {

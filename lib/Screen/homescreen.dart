@@ -2,9 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:homegenie/Screen/event_details.dart';
 import 'package:homegenie/Screen/history_list.dart';
-import 'package:homegenie/Screen/history_overview.dart';
 import 'package:homegenie/Screen/login.dart';
 import 'event_list.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -172,6 +170,8 @@ class _HomescreenState extends State<Homescreen> {
         _getCurrentLocation(),
         _fetchEventList(),
         _fetchOfficeType(),
+        _getStatusFromServer(),
+
       ]);
     } catch (e) {
       print("Initialization error: $e");
@@ -195,14 +195,33 @@ class _HomescreenState extends State<Homescreen> {
       _getCurrentLocation(),
       _fetchEventList(),
       _fetchOfficeType(),
-      _get_checkin_status(),
-      _get_checkout_status(),
+      // _get_checkin_status(),
+      // _get_checkout_status(),
+
+        _getStatusFromServer(),
     ]);
 
     if (mounted) {
       setState(() {}); // just trigger rebuild
     }
+    print(_checkedOut);
+        print(!_checkedOut);
   }
+
+  bool _previousDayPendingCheckout = false;
+  Future<void> _getStatusFromServer() async {
+  final email = prefs.getString('email');
+  if (email == null) return;
+
+  final response = await Check.getStatus(email); // Custom API call
+
+  setState(() {
+    _checkedIn = response["checked_in"] ?? false;
+    _checkedOut = response["checked_out"] ?? false;
+    _previousDayPendingCheckout = response["previous_checkout_pending"] ?? false;
+  });
+}
+
 
   Future<void> _fetchOfficeType() async {
     var response = await Event.office_type_list(prefs.getString('email') ?? '');
@@ -507,44 +526,66 @@ class _HomescreenState extends State<Homescreen> {
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
-                              onPressed:  (_checkedOut && !_checkedIn) 
-                                      ? null
-                                      :() async {
-                                        setState(() {
-                                          _isActionLoading = true;
-                                        });
+                              onPressed:  (_checkedOut && !_checkedIn && !_previousDayPendingCheckout)
+    ? null
+    : () async {
+        // setState(() {
+        //   _isActionLoading = true;
+        // });
 
-                                        await Action_Bottom.show(
-                                          context: context,
-                                          title: 'Choose Location',
-                                          options: officeTypes,
-                                          isCheckedIn: _checkedIn,
-                                          onTrackingStarted:
-                                              _showDistanceOverlay,
-                                          onTrackingStopped:
-                                              _removeDistanceOverlay,
-                                          onStatusUpdate: (
-                                            bool isNowCheckedIn,
-                                          ) {
-                                            setState(() {
-                                              _checkedIn = isNowCheckedIn;
-                                              _checkedOut = !isNowCheckedIn;
-                                            });
-                                          },
-                                        );
-                                        await Future.delayed(Duration(seconds: 5));
-                                        await _fetchData();
-                                        setState(() {
-                                          _isActionLoading = false;
-                                        });
-                                      },
+        await Action_Bottom.show(
+          context: context,
+          title: 'Choose Location',
+          options: officeTypes,
+          isCheckedIn: _checkedIn || _previousDayPendingCheckout, // treat as IN
+          onTrackingStarted: _showDistanceOverlay,
+          onTrackingStopped: _removeDistanceOverlay,
+          onApiStart: () {
+    setState(() {
+      _isActionLoading = true;
+    });
+  },
+  onApiEnd: () async {
+    await _fetchData();
+    setState(() {
+      _isActionLoading = false;
+    });
+  },
+          onStatusUpdate: (bool isNowCheckedIn) {
+            setState(() {
+              // If we just checked out previous day
+              if (_previousDayPendingCheckout) {
+                _previousDayPendingCheckout = false;
+                _checkedIn = false;
+                _checkedOut = false;
+              } else {
+                _checkedIn = isNowCheckedIn;
+                _checkedOut = !isNowCheckedIn;
+              }
+            });
+          },
+        );
+
+        // await Future.delayed(Duration(seconds: 5));
+        await _fetchData();
+
+        // setState(() {
+        //   _isActionLoading = false;
+        // });
+
+        
+      },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor:
-                                    !_checkedIn
-                                        ? Colors.blue
-                                        :  (!_checkedOut
+                                    _previousDayPendingCheckout
+                                        ? Colors.red
+                                        : !_checkedIn
+                                          ? Colors.blue
+                                          : !_checkedOut
                                             ? Colors.red
-                                            : Colors.grey)
+                                              : Colors.grey
+
+                                        
                               ),
                               child:
                                   _isActionLoading
@@ -560,11 +601,18 @@ class _HomescreenState extends State<Homescreen> {
                                         ),
                                       )
                                       : Text(
-                                        !_checkedIn ? "Check In" : "Check Out"
-                                            
-                                            ,
-                                        style: TextStyle(color: Colors.white),
-                                      ),
+  _previousDayPendingCheckout
+      ? "Check Out (Previous Day)"
+      : !_checkedIn
+          ? "Check In"
+          : !_checkedOut
+              ? "Check Out"
+              : "Completed",
+
+              
+  style: TextStyle(color: Colors.white),
+),
+
                             ),
                           ),
                         ],

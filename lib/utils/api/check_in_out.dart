@@ -35,14 +35,30 @@ class Check{
     }
   }
 
+static Future<Map<String, dynamic>> getStatus(String email) async {
+
+  final SharedPreferences prefs = await SharedPreferences.getInstance();
+
+      token = prefs.getString('token');
+
+  final response = await http.post(
+    Uri.parse("$methodapiUrl.get_checkin_checkout_status?user=$email"),
+    headers: {
+          "Authorization": token ?? "",
+        },
+  );
+  print(response);
+  print(response.body);
+
+  final body = jsonDecode(response.body);
+  return body["message"];
+}
   static checkout(id, lat, lng,String address,lastCheckoutAddress,distance,String type,List<Map<String, dynamic>> locationLogs) async {
 
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
 
       token = prefs.getString('token');
-      print(await prefs.getBool('with_event'));
-      print(await prefs.getString('last_lat_lng'));
       final with_event = await prefs.getBool('with_event');
       final last_lat_lng = await prefs.getString('last_lat_lng');
 
@@ -53,6 +69,7 @@ class Check{
         },
       );
       final data = json.decode(response.body);
+      print(data);
       String message = data['message'].toString();
     String status = "Success"; // default
 

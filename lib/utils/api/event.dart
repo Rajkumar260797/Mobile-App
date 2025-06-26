@@ -31,6 +31,32 @@ class Event {
       throw Exception("Error fetching events: $e");
     }
   }
+
+static Future<bool> checkIfOtpRequired(String eventId) async {
+  final prefs = await SharedPreferences.getInstance();
+  final String? token = prefs.getString('token');
+
+  try {
+    var response = await http.get(
+      Uri.parse('$URL.is_otp_required?event_id=$eventId'),
+      headers: {
+        "Authorization": token ?? "",
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+    );
+
+    if (response.statusCode == 200) {
+      var data = json.decode(response.body);
+      return data['message'] == true;
+    } else {
+      throw Exception("Failed to check OTP requirement: ${response.statusCode}");
+    }
+  } catch (e) {
+    throw Exception("Error checking OTP requirement: $e");
+  }
+}
+
 static Future<List<dynamic>> HistoryList(String usr, String fromDate, String toDate) async {
   final prefs = await SharedPreferences.getInstance();
   final String? token = prefs.getString('token');
@@ -286,11 +312,18 @@ static Future<List<dynamic>> HistoryList(String usr, String fromDate, String toD
         'event_id': eventId,
       }),
     );
+    print(response);
+    print(response.statusCode);
+    print(response.body);
+    
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
+      print(data['message']['status'] == 'success');
+      print("**");
       return data['message']['status'] == 'success';
     } else {
+      print("***");
       return false;
     }
   } catch (e) {
