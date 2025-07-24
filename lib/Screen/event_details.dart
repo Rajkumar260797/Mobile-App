@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:homegenie/utils/api/check_in_out.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/api/event.dart';
 import '../utils/widget/location_tracker.dart';
@@ -33,8 +34,24 @@ class _EventDetailsState extends State<EventDetails> {
   @override
   void initState() {
     super.initState();
-    _init();
+    print('event initState called');
+    _checkPing();
   }
+
+  Future<void> _checkPing() async {
+  try {
+    var pingResult = await Check.pingpong(); 
+
+    if (pingResult == false) {
+      Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+    } else {
+      _init();  
+    }
+  } catch (e) {
+    print('Error during ping: $e');
+  }
+}
+
 
   Future<void> _init() async {
     prefs = await SharedPreferences.getInstance();
@@ -47,7 +64,9 @@ class _EventDetailsState extends State<EventDetails> {
       _isLoading = true;
     });
 
-    await Future.wait([_fetchEventDetails()]);
+    await Future.wait([
+      _fetchEventDetails()
+    ]);
 
     setState(() {
       _isLoading = false;
@@ -94,7 +113,7 @@ class _EventDetailsState extends State<EventDetails> {
   }
 
   Future<void> _fetchEventDetails() async {
-    final response = await Event.eventdetails(widget.eventid);
+    final response = await Event.eventdetails(widget.eventid, context);
     if (response != Null) {
       setState(() {
         eventData = response;
@@ -224,7 +243,7 @@ Future<bool> showOTPDialog(BuildContext context) async {
   Timer? resendTimer;
 
   Future<void> sendOtp() async {
-    await Event.sendOtp(widget.eventid);
+    await Event.sendOtp(widget.eventid, context);
   }
 
   await sendOtp(); // Initial OTP send
@@ -344,6 +363,7 @@ ScaffoldMessenger.of(context).showSnackBar(
     }
 
     String getButtonLabel() {
+      // _checkPing();
       final checkIn = eventData['event']['custom_check_in'];
       final checkOut = eventData['event']['custom_check_out'];
 
@@ -603,8 +623,10 @@ ScaffoldMessenger.of(context).showSnackBar(
                                                           lat,
                                                           lng,
                                                           address,
+                                                          context,
                                                         );
-                                
+                                    
+                                                    if (response['message'] != null)  {
                                                     if (response['message']['status'] ==
                                                         "success") {
                                                       Warning.show(
@@ -625,12 +647,15 @@ ScaffoldMessenger.of(context).showSnackBar(
                                                         "Error",
                                                       );
                                                     }
-                                                  } else if ((checkIn != null &&
+                                                          }
+                                                  } 
+                                                  else if ((checkIn != null &&
                                                           checkIn.isNotEmpty) &&
                                                       (checkOut == null ||
                                                           checkOut.isEmpty)) {
 
-                                                            bool isOtpRequired = await Event.checkIfOtpRequired(widget.eventid);
+                                                            bool isOtpRequired = await Event.checkIfOtpRequired(widget.eventid, context);
+                                                            print(isOtpRequired);
 
   if (isOtpRequired) {
     bool confirmed = await showOTPDialog(context);
@@ -698,10 +723,13 @@ ScaffoldMessenger.of(context).showSnackBar(
                                                           jsonEncode(
                                                             locationLogs,
                                                           ),
+                                                          context,
                                                         );
-                                                    if (response['message']['status'] ==
-                                                        "success") {
-                                                      LocationTrackerService.startTracking(
+                                                    if (response['message'] != null) {
+
+                                                      if (response['message']['status'] ==
+                                                          "success") {
+                                                        LocationTrackerService.startTracking(
                                                         start: LatLng(
                                                           position.latitude,
                                                           position.longitude,
@@ -726,12 +754,14 @@ ScaffoldMessenger.of(context).showSnackBar(
                                 
                                                       _fetchData(); // refresh
                                                     }
-                                                  } else {
+                                                   else {
                                                     Warning.show(
                                                       context,
                                                       "Already checked in and out",
                                                       "",
                                                     );
+                                                  }
+                                                }
                                                   }
                                                 } catch (e) {
                                                   print("Location error: $e");

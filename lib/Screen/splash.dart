@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:homegenie/utils/api/check_in_out.dart';
+import 'package:homegenie/utils/widget/warning.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'login.dart';
 import 'homescreen.dart';
@@ -15,8 +17,23 @@ class _SplashState extends State<Splash> {
   @override
   initState() {
     super.initState();
-    _redirect();
+    _checkPing();
   }
+
+  Future<void> _checkPing() async {
+  try {
+    var pingResult = await Check.pingpong(); 
+
+    if (pingResult == false) {
+      Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+    } else {
+    _redirect();
+    }
+  } catch (e) {
+    print('Error during ping: $e');
+  }
+}
+
 
   void _redirect() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
