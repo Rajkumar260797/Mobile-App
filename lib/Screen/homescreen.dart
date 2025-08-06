@@ -182,8 +182,8 @@ class _HomescreenState extends State<Homescreen> {
       _prefsInitialized = true;
 
       await Future.wait([
-        _get_checkin_status(),
-        _get_checkout_status(),
+        // _get_checkin_status(),
+        // _get_checkout_status(),
         _setCurrentTime(),
         _getCurrentLocation(),
         _fetchEventList(),
