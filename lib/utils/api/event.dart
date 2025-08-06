@@ -1,5 +1,8 @@
 import 'dart:convert';
+import 'package:flutter/src/widgets/framework.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:homegenie/utils/api/check_in_out.dart';
+import 'package:homegenie/utils/widget/warning.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -10,6 +13,14 @@ class Event {
   static final URL = dotenv.env['URL'];
 
   static Future<List<dynamic>> eventList(String usr) async {
+   final pingResult = await Check.pingpong();
+
+    if (pingResult == null || pingResult['message'] != 'pong') {
+      return [{
+        "message": "ERP Site is not in working condition! Please try again later.",
+        "status": "Error"
+      }];
+    }
     final prefs = await SharedPreferences.getInstance();
     final String? token = prefs.getString('token');
     try {
@@ -32,32 +43,43 @@ class Event {
     }
   }
 
-static Future<bool> checkIfOtpRequired(String eventId) async {
-  final prefs = await SharedPreferences.getInstance();
-  final String? token = prefs.getString('token');
-
-  try {
-    var response = await http.get(
-      Uri.parse('$URL.is_otp_required?event_id=$eventId'),
-      headers: {
-        "Authorization": token ?? "",
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-    );
-
-    if (response.statusCode == 200) {
-      var data = json.decode(response.body);
-      return data['message'] == true;
-    } else {
-      throw Exception("Failed to check OTP requirement: ${response.statusCode}");
-    }
-  } catch (e) {
-    throw Exception("Error checking OTP requirement: $e");
+static Future<bool> checkIfOtpRequired(String eventId, BuildContext context) async {
+ final pingResult = await Check.pingpong();  
+  if (pingResult == false) {
+    Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+    return false; 
   }
+
+    final prefs = await SharedPreferences.getInstance();
+    final String? token = prefs.getString('token');
+
+    try {
+      var response = await http.get(
+        Uri.parse('$URL.is_otp_required?event_id=$eventId'),
+        headers: {
+          "Authorization": token ?? "",
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        var data = json.decode(response.body);
+        return data['message'] == true;
+      } else {
+        throw Exception("Failed to check OTP requirement: ${response.statusCode}");
+      }
+    } catch (e) {
+      throw Exception("Error checking OTP requirement: $e");
+    }
 }
 
-static Future<List<dynamic>> HistoryList(String usr, String fromDate, String toDate) async {
+static Future<List<dynamic>> HistoryList(String usr, String fromDate, String toDate, BuildContext context) async {
+ final pingResult = await Check.pingpong();  
+  if (pingResult == false) {
+    Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+    return [];
+  }
   final prefs = await SharedPreferences.getInstance();
   final String? token = prefs.getString('token');
 
@@ -94,7 +116,13 @@ static Future<List<dynamic>> HistoryList(String usr, String fromDate, String toD
 }
 
 
-  static eventdetails(String id) async {
+  static eventdetails(String id, BuildContext context) async {
+    final pingResult = await Check.pingpong();  
+  if (pingResult == false) {
+    Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+    return [];
+  }
+
     final prefs = await SharedPreferences.getInstance();
     final String? token = prefs.getString('token');
     try {
@@ -117,7 +145,12 @@ static Future<List<dynamic>> HistoryList(String usr, String fromDate, String toD
     }
   }
 
-  static Future<List<dynamic>> office_type_list(String usr) async {
+  static Future<List<dynamic>> office_type_list(String usr, BuildContext context) async {
+ final pingResult = await Check.pingpong();  
+  if (pingResult == false) {
+    Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+    return [];
+  }
     final prefs = await SharedPreferences.getInstance();
     final String? token = prefs.getString('token');
     try {
@@ -140,7 +173,12 @@ static Future<List<dynamic>> HistoryList(String usr, String fromDate, String toD
     }
   }
 
-  static Future<List<dynamic>> head_office_list() async {
+  static Future<List<dynamic>> head_office_list(BuildContext context) async {
+ final pingResult = await Check.pingpong();  
+  if (pingResult == false) {
+    Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+    return [];
+  }
     final prefs = await SharedPreferences.getInstance();
     final String? token = prefs.getString('token');
     try {
@@ -163,7 +201,12 @@ static Future<List<dynamic>> HistoryList(String usr, String fromDate, String toD
     }
   }
 
-  static Head_office_details(String office) async {
+  static Head_office_details(String office, BuildContext context) async {
+ final pingResult = await Check.pingpong();  
+  if (pingResult == false) {
+    Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+    return [];
+  }
     final prefs = await SharedPreferences.getInstance();
     final String? token = prefs.getString('token');
     try {
@@ -189,7 +232,13 @@ static Future<List<dynamic>> HistoryList(String usr, String fromDate, String toD
   static Future<List<Map<String, dynamic>>> fetchEventListByDate(
     String user,
     String date,
-  ) async {
+    BuildContext context,
+  ) async { 
+final pingResult = await Check.pingpong();  
+  if (pingResult == false) {
+    Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+    return []; 
+  }
     final prefs = await SharedPreferences.getInstance();
 
     final String? token = prefs.getString('token');
@@ -217,31 +266,39 @@ static Future<List<dynamic>> HistoryList(String usr, String fromDate, String toD
   }
 
   static Future<Map<String, dynamic>> eventCheckin(
-    String? user,
-    String eventId,
-    double lat,
-    double lng,
-    String address,
-  ) async {
-    final prefs = await SharedPreferences.getInstance();
-
-    final String? token = prefs.getString('token');
-    final response = await http.post(
-      Uri.parse('$URL.event_checkin'),
-      body: {
-        'user': user,
-        'event_id': eventId,
-        'lat': lat.toString(),
-        'lng': lng.toString(),
-        'address': address,
-      },
-      headers: {
-        'Authorization': token ?? '', // if required
-      },
-    );
-
-    return json.decode(response.body);
+  String? user,
+  String eventId,
+  double lat,
+  double lng,
+  String address,
+  BuildContext context,
+) async {
+  
+  final pingResult = await Check.pingpong();  
+  if (pingResult == false) {
+    Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+    return {}; 
   }
+
+  final prefs = await SharedPreferences.getInstance();
+  final String? token = prefs.getString('token');
+  
+  final response = await http.post(
+    Uri.parse('$URL.event_checkin'),
+    body: {
+      'user': user,
+      'event_id': eventId,
+      'lat': lat.toString(),
+      'lng': lng.toString(),
+      'address': address,
+    },
+    headers: {
+      'Authorization': token ?? '', 
+    },
+  );
+
+  return json.decode(response.body);
+}
 
   static Future<Map<String, dynamic>> eventCheckout(
     String? user,
@@ -253,7 +310,14 @@ static Future<List<dynamic>> HistoryList(String usr, String fromDate, String toD
     String distance,
     String last_lat_lng,
     String locationLogs,
+    BuildContext context
   ) async {
+
+final pingResult = await Check.pingpong();  
+  if (pingResult == false) {
+    Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+    return {}; 
+  }
     final prefs = await SharedPreferences.getInstance();
 
 
@@ -274,10 +338,19 @@ static Future<List<dynamic>> HistoryList(String usr, String fromDate, String toD
       },
       headers: {'Authorization': token ?? ''},
     );
+    print(response.body);
+
     return json.decode(response.body);
   }
 
-  static Future<void> sendOtp(event_id) async {
+  static Future<void> sendOtp(event_id, BuildContext context) async {
+
+  final pingResult = await Check.pingpong();  
+  if (pingResult == false) {
+    Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+    return;
+  }
+    
     final prefs = await SharedPreferences.getInstance();
   final token = prefs.getString('token');
 

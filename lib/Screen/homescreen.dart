@@ -1,7 +1,9 @@
 import 'dart:async';
-
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:homegenie/Screen/history_list.dart';
 import 'package:homegenie/Screen/login.dart';
 import 'event_list.dart';
@@ -151,11 +153,27 @@ class _HomescreenState extends State<Homescreen> {
   @override
   void initState() {
     super.initState();
-    _init();
+    _checkPing();
   }
 
+  Future<void> _checkPing() async {
+  try {
+    var pingResult = await Check.pingpong(); 
+    print('Ping result: $pingResult');
+    if (pingResult == false) {
+      Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+    } else {
+      _init();  
+    }
+  } catch (e) {
+    print('Error during ping: $e');
+  }
+}
+
+
+
   Future<void> _init() async {
-    setState(() {
+    setState(() {  
       _isLoading = true;
     });
 
@@ -164,8 +182,8 @@ class _HomescreenState extends State<Homescreen> {
       _prefsInitialized = true;
 
       await Future.wait([
-        _get_checkin_status(),
-        _get_checkout_status(),
+        // _get_checkin_status(),
+        // _get_checkout_status(),
         _setCurrentTime(),
         _getCurrentLocation(),
         _fetchEventList(),
@@ -191,6 +209,7 @@ class _HomescreenState extends State<Homescreen> {
 
   Future<void> _fetchData() async {
     await Future.wait([
+      _checkPing(),
       _setCurrentTime(),
       _getCurrentLocation(),
       _fetchEventList(),
@@ -224,7 +243,7 @@ class _HomescreenState extends State<Homescreen> {
 
 
   Future<void> _fetchOfficeType() async {
-    var response = await Event.office_type_list(prefs.getString('email') ?? '');
+    var response = await Event.office_type_list(prefs.getString('email') ?? '', context);
     if (response is List) {
       officeTypes = response.map((e) => e.toString()).toList();
     }
@@ -267,25 +286,32 @@ class _HomescreenState extends State<Homescreen> {
     setState(() {});
   }
 
-  void _showLogoutDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (BuildContext alertContext) {
-        return AlertDialog(
-          title: Text("Logout"),
-          content: Text("Are you sure you want to logout?"),
-          actions: <Widget>[
-            TextButton(
-              child: Text("Cancel", style: TextStyle(color: Colors.blueAccent)),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-            ),
-            TextButton(
-              child: Text("Logout", style: TextStyle(color: Colors.blueAccent)),
-              onPressed: () async {
-                Navigator.of(alertContext).pop(); // Close dialog
+void _showLogoutDialog(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (BuildContext alertContext) {
+      return AlertDialog(
+        title: Text("Logout"),
+        content: Text("Are you sure you want to logout?"),
+        actions: <Widget>[
+          TextButton(
+            child: Text("Cancel", style: TextStyle(color: Colors.blueAccent)),
+            onPressed: () {
+              Navigator.of(alertContext).pop(); // Close the dialog when Cancel is selected
+            },
+          ),
+          TextButton(
+            child: Text("Logout", style: TextStyle(color: Colors.blueAccent)),
+            onPressed: () async {
+              var pingResult = await Check.pingpong(); 
+              
+              Navigator.of(alertContext).pop(); // Close the dialog before proceeding
 
+              if (pingResult == false) {
+                Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+                return; // Stop further logout process
+              } else {
+                // Perform logout logic
                 SharedPreferences prefs = await SharedPreferences.getInstance();
                 await prefs.clear();
 
@@ -297,13 +323,15 @@ class _HomescreenState extends State<Homescreen> {
                     (route) => false,
                   );
                 }
-              },
-            ),
-          ],
-        );
-      },
-    );
-  }
+              }
+            },
+          ),
+        ],
+      );
+    },
+  );
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -313,6 +341,8 @@ class _HomescreenState extends State<Homescreen> {
 
     List<Widget> getEventWidgets() {
       return eventData.expand<Widget>((event) {
+        print(event);
+        print('eeeeeeevvvvvvtttttttttttt');
         String initials =
             event['subject'] != null && event['name'].isNotEmpty
                 ? event['name'][0]
@@ -339,7 +369,13 @@ class _HomescreenState extends State<Homescreen> {
       }).toList();
     }
 
-    return Scaffold(
+    return WillPopScope(
+      onWillPop: () async {
+        // Close the app when the back button is pressed
+        SystemNavigator.pop();
+        return Future.value(false); // Prevent default back button behavior
+      },
+      child: Scaffold(
       key: _scaffoldKey,
       appBar: AppBar(
         systemOverlayStyle: SystemUiOverlayStyle(
@@ -713,6 +749,8 @@ class _HomescreenState extends State<Homescreen> {
                   ],
                 ),
               ),
+      )
     );
+    
   }
 }

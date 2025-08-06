@@ -1,42 +1,77 @@
 import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:homegenie/utils/widget/warning.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class Check{
+ static pingpong() async {
+  try {
+    final baseUrl = dotenv.env['SITE_URL'];
+    final uri = Uri.parse('$baseUrl/api/method/ping');
+    final response = await http.post(
+      uri,
+      headers: {
+        'Accept': 'application/json',
+      },
+    ).timeout(Duration(seconds: 2)); 
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+
+      if (data != null && data['message'] == 'pong') {
+        return data; 
+      }
+    }
+    return false; 
+  } catch (e) {
+    print("Error in pingpong: $e");
+    return false;
+  }
+}   
+
   static final methodapiUrl = dotenv.env['URL'];
   static String? token;
 
   static checkin(id, lat, lng,String address,String type) async {
+  final SharedPreferences prefs = await SharedPreferences.getInstance();
+  final String? token = prefs.getString('token');
 
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
+  try {
+    var response = await http.get(
+      Uri.parse(
+        '$methodapiUrl.checkin?user=$id&lat=$lat&lng=$lng&address=${Uri.encodeComponent(address)}&office_type=$type',
+      ),
+      headers: {
+        "Authorization": token ?? "",
+      },
+    );
 
-    token = prefs.getString('token');
-    try {
-      var response = await http.get(
-        Uri.parse('$methodapiUrl.checkin?user=$id&lat=$lat&lng=$lng&address=${Uri.encodeComponent(address)}&office_type=$type'),
-        headers: {
-          "Authorization": token ?? "",
-        },
-      );
-      var data = json.decode(response.body);
+    var data = json.decode(response.body);
 
-
-      if (response.statusCode == 200) {
-        return {
-          "message": data['message'],
-          "status": data['message'] == "Check-In Created Successfully"
-              ? "Success"
-              : "Error"
-        };
-      }
-    } catch (e) {
-      print(['error $e']);
+    if (response.statusCode == 200) {
+      return {
+        "message": data['message'] ?? "No message",
+        "status": data['message'] == "Check-In Created Successfully"
+            ? "Success"
+            : "Error"
+      };
+    } else {
+      return {
+        "message": "Server error: ${response.statusCode}",
+        "status": "Error"
+      };
     }
+  } catch (e) {
+    print('Check-in error: $e');
+    return {
+      "message": "An error occurred while checking in.",
+      "status": "Error"
+    };
+  }
   }
 
 static Future<Map<String, dynamic>> getStatus(String email) async {
-
   final SharedPreferences prefs = await SharedPreferences.getInstance();
 
       token = prefs.getString('token');
@@ -47,14 +82,11 @@ static Future<Map<String, dynamic>> getStatus(String email) async {
           "Authorization": token ?? "",
         },
   );
-  print(response);
-  print(response.body);
 
   final body = jsonDecode(response.body);
   return body["message"];
 }
   static checkout(id, lat, lng,String address,lastCheckoutAddress,distance,String type,List<Map<String, dynamic>> locationLogs) async {
-
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
 
@@ -69,7 +101,6 @@ static Future<Map<String, dynamic>> getStatus(String email) async {
         },
       );
       final data = json.decode(response.body);
-      print(data);
       String message = data['message'].toString();
     String status = "Success"; // default
 
@@ -97,7 +128,6 @@ static Future<Map<String, dynamic>> getStatus(String email) async {
   }
 
   static check_in_status(user) async {
-
     try {
       final SharedPreferences prefs = await SharedPreferences.getInstance();
 

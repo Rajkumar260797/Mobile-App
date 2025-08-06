@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:homegenie/Screen/homescreen.dart';
+import 'package:homegenie/utils/api/check_in_out.dart';
 import '../utils/api/login_api.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/widget/warning.dart';
@@ -21,10 +22,23 @@ class _LoginState extends State<Login> {
   @override
   void initState() {
     super.initState();
-    _emailFocusNode.addListener(() {
-      setState(() {});
-    });
+      _checkPing();
   }
+  Future<void> _checkPing() async {
+  try {
+    var pingResult = await Check.pingpong(); 
+
+    if (pingResult == false) {
+      Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+    } else {
+      _emailFocusNode.addListener(() {
+        setState(() {});
+      });
+    }
+  } catch (e) {
+    print('Error during ping: $e');
+  }
+}
 
   @override
   void dispose() {
@@ -37,6 +51,7 @@ class _LoginState extends State<Login> {
     setState(() {
       _isLoading = true;
     });
+    _checkPing() ;
     SharedPreferences prefs = await SharedPreferences.getInstance();
 
     String email = _emailController.text.toString().trim();

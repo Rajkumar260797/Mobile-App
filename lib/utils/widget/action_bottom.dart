@@ -97,7 +97,7 @@ class Action_Bottom {
                   onPressed: (_) async {
                     Navigator.pop(context);
                     if (option == "Head Office") {
-                      List<dynamic> officeList = await Event.head_office_list();
+                      List<dynamic> officeList = await Event.head_office_list(context);
 
                       List<String> officeNames =
                           officeList.map((e) => e.toString()).toList();
@@ -265,7 +265,7 @@ class Action_Bottom {
                           await SharedPreferences.getInstance();
 
                       Map<String, dynamic> office_details =
-                          await Event.Head_office_details(option);
+                          await Event.Head_office_details(option, context);
 
                       double _geofenceRadius =
                           office_details['allowd_distance_meters'];

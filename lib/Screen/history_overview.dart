@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:homegenie/utils/api/check_in_out.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../utils/api/event.dart';
@@ -34,8 +35,22 @@ class _HistoryOverviewState extends State<HistoryOverview> {
   @override
   void initState() {
     super.initState();
-    _init();
+    _checkPing();
   }
+
+  Future<void> _checkPing() async {
+  try {
+    var pingResult = await Check.pingpong(); 
+
+    if (pingResult == false) {
+      Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+    } else {
+      _init();  
+    }
+  } catch (e) {
+    print('Error during ping: $e');
+  }
+}
 
   Future<void> _init() async {
     prefs = await SharedPreferences.getInstance();
@@ -96,7 +111,7 @@ class _HistoryOverviewState extends State<HistoryOverview> {
 
   Future<void> _fetchHistoryOverview() async {
 
-    final response = await Event.eventdetails(widget.eventid);
+    final response = await Event.eventdetails(widget.eventid, context);
 
     if (response != Null) {
       setState(() {

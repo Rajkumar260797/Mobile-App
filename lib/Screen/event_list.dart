@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:homegenie/utils/api/check_in_out.dart';
+import 'package:homegenie/utils/widget/warning.dart';
 import 'package:intl/intl.dart';
 import 'package:month_picker_dialog/month_picker_dialog.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -30,7 +32,18 @@ class _EventsPageState extends State<EventsPage> {
   @override
   void initState() {
     super.initState();
-    _searchController.addListener(_onSearchChanged);
+    _checkPing();
+  }
+
+
+Future<void> _checkPing() async {
+  try {
+    var pingResult = await Check.pingpong(); 
+
+    if (pingResult == false) {
+      Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+    } else {
+      _searchController.addListener(_onSearchChanged);
 
     DateTime now = DateTime.now();
     selectedMonth = DateTime(now.year, now.month, 1);
@@ -46,8 +59,11 @@ class _EventsPageState extends State<EventsPage> {
         _scrollToSelectedDate();
       });
     });
+    }
+  } catch (e) {
+    print('Error during ping: $e');
   }
-
+}
   @override
   void dispose() {
     _searchController.dispose();
@@ -104,6 +120,7 @@ class _EventsPageState extends State<EventsPage> {
       List<Map<String, dynamic>> response = await Event.fetchEventListByDate(
         prefs.getString("email") ?? '',
         date,
+        context,
       );
       eventList = response;
       filteredEventList = eventList;
