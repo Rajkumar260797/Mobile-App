@@ -1,10 +1,9 @@
-import 'package:flutter/material.dart';
-import 'package:homegenie/utils/api/check_in_out.dart';
-import 'package:homegenie/utils/widget/warning.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'login.dart';
 import 'homescreen.dart';
-import 'history_list.dart';
+import 'package:flutter/material.dart';
+import 'package:homegenie/utils/widget/warning.dart';
+import 'package:homegenie/utils/api/check_in_out.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class Splash extends StatefulWidget {
   const Splash({super.key});
@@ -39,7 +38,7 @@ class _SplashState extends State<Splash> {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     String? email = prefs.getString('email');
 
-    await Future.delayed(Duration(seconds: 3)); // Optional splash duration
+    await Future.delayed(Duration(seconds: 3));
 
     if (email != null && email.isNotEmpty) {
       Navigator.pushReplacement(
@@ -75,13 +74,6 @@ class _SplashState extends State<Splash> {
               ),
             ),
             SizedBox(height: height * 0.35),
-            // Text(
-            //   "Thirvu Soft Pvt Ltd",
-            //   style: TextStyle(
-            //       color: Color.fromARGB(255, 0, 0, 0),
-            //       fontSize: 15,
-            //       fontWeight: FontWeight.bold),
-            // ),
           ],
         ),
       ),

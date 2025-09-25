@@ -100,6 +100,9 @@ static Future<Map<String, dynamic>> getStatus(String email) async {
           "Authorization": token ?? "",
         },
       );
+      print(response);
+      print(response.statusCode);
+      print(response.body);
       final data = json.decode(response.body);
       String message = data['message'].toString();
     String status = "Success"; // default

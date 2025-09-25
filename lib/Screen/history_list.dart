@@ -1,11 +1,11 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
-import 'package:homegenie/Screen/history_overview.dart';
-import 'package:homegenie/utils/api/check_in_out.dart';
-import 'package:homegenie/utils/widget/warning.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/api/event.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:homegenie/utils/widget/warning.dart';
+import 'package:homegenie/utils/api/check_in_out.dart';
+import 'package:homegenie/Screen/history_overview.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class HistoryList extends StatefulWidget {
   const HistoryList({super.key});
@@ -17,39 +17,43 @@ class HistoryList extends StatefulWidget {
 class _HistoryListState extends State<HistoryList> {
   List<Map<String, dynamic>> historyData = [];
   String searchQuery = '';
-  bool isLoading = true;
   String? errorMessage;
-  late SharedPreferences prefs;
-  DateTime? fromDate;
   DateTime? toDate;
+  DateTime? fromDate;
+  late SharedPreferences prefs;
+
+  bool isLoading = true;
   bool showFilterRow = false;
   bool showSearchBar = false;
 
+  
   @override
   void initState() {
     super.initState();
     _checkPing();
   }
 
-
   Future<void> _checkPing() async {
-  try {
-    var pingResult = await Check.pingpong(); 
+    try {
+      var pingResult = await Check.pingpong();
 
-    if (pingResult == false) {
-      Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
-    } else {
-     DateTime now = DateTime.now();
-    fromDate = DateTime(now.year, now.month, 1); // 1st of this month
-    toDate = now; // today
+      if (pingResult == false) {
+        Warning.show(
+          context,
+          'ERP Site is not in working condition! Please try again later.',
+          'Error',
+        );
+      } else {
+        DateTime now = DateTime.now();
+        fromDate = DateTime(now.year, now.month, 1); // 1st of this month
+        toDate = now; // today
 
-    fetchHistoryData();
+        fetchHistoryData();
+      }
+    } catch (e) {
+      print('Error during ping: $e');
     }
-  } catch (e) {
-    print('Error during ping: $e');
   }
-}
-
 
   Future<void> fetchHistoryData() async {
     try {
@@ -59,7 +63,12 @@ class _HistoryListState extends State<HistoryList> {
       final String from = DateFormat('yyyy-MM-dd').format(fromDate!);
       final String to = DateFormat('yyyy-MM-dd').format(toDate!);
 
-      List<dynamic> response = await Event.HistoryList(username, from, to, context);
+      List<dynamic> response = await Event.HistoryList(
+        username,
+        from,
+        to,
+        context,
+      );
 
       setState(() {
         historyData =

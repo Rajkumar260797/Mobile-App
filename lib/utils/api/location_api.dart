@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class LocationHelper {
-  static const String _googleApiKey = 'AIzaSyCEkjoOnXRf6c9Xzml2QPNvZoq2LuG06JI'; // Replace this with your actual key
+  static const String _googleApiKey = 'AIzaSyCEkjoOnXRf6c9Xzml2QPNvZoq2LuG06JI';
 
   static Future<String> getAddressFromCoordinates(double lat, double lon) async {
     final url = Uri.parse(

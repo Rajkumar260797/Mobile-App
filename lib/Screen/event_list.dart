@@ -1,12 +1,12 @@
-import 'package:flutter/material.dart';
-import 'package:homegenie/utils/api/check_in_out.dart';
-import 'package:homegenie/utils/widget/warning.dart';
 import 'package:intl/intl.dart';
-import 'package:month_picker_dialog/month_picker_dialog.dart';
+import 'package:flutter/material.dart';
+import 'package:homegenie/utils/widget/warning.dart';
+import 'package:homegenie/utils/api/check_in_out.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'event_details.dart';
-import '../utils/widget/event_list.dart';
+import 'package:month_picker_dialog/month_picker_dialog.dart';
+
 import '../utils/api/event.dart';
+import '../utils/widget/event_list.dart';
 
 class EventsPage extends StatefulWidget {
   const EventsPage({Key? key}) : super(key: key);
@@ -35,35 +35,41 @@ class _EventsPageState extends State<EventsPage> {
     _checkPing();
   }
 
+  Future<void> _checkPing() async {
+    try {
+      var pingResult = await Check.pingpong();
 
-Future<void> _checkPing() async {
-  try {
-    var pingResult = await Check.pingpong(); 
+      if (pingResult == false) {
+        Warning.show(
+          context,
+          'ERP Site is not in working condition! Please try again later.',
+          'Error',
+        );
+      } else {
+        _searchController.addListener(_onSearchChanged);
 
-    if (pingResult == false) {
-      Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
-    } else {
-      _searchController.addListener(_onSearchChanged);
+        DateTime now = DateTime.now();
+        selectedMonth = DateTime(now.year, now.month, 1);
+        selectedDate = now;
+        selectedDateIndex = now.day - 1;
 
-    DateTime now = DateTime.now();
-    selectedMonth = DateTime(now.year, now.month, 1);
-    selectedDate = now;
-    selectedDateIndex = now.day - 1;
+        _generateDays();
 
-    _generateDays();
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          await getEventDataForDate(
+            DateFormat('yyyy-MM-dd').format(selectedDate),
+          );
 
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await getEventDataForDate(DateFormat('yyyy-MM-dd').format(selectedDate));
-
-      Future.delayed(Duration(milliseconds: 50), () {
-        _scrollToSelectedDate();
-      });
-    });
+          Future.delayed(Duration(milliseconds: 50), () {
+            _scrollToSelectedDate();
+          });
+        });
+      }
+    } catch (e) {
+      print('Error during ping: $e');
     }
-  } catch (e) {
-    print('Error during ping: $e');
   }
-}
+
   @override
   void dispose() {
     _searchController.dispose();

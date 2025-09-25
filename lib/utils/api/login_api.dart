@@ -12,7 +12,6 @@ class LoginApi {
   try {
     var response = await http.get(Uri.parse('$emploginapiURL.login?usr=$usr&pwd=$pwd'));
     var data = json.decode(response.body);
-
     if (response.statusCode == 401) {
       return {'error': 'Incorrect Username or Password'};
     }
