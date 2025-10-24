@@ -9,6 +9,7 @@ class LoginApi {
 
   static Future<Map<String, dynamic>> login(String usr, String pwd) async {
   final prefs = await SharedPreferences.getInstance();
+  print('$emploginapiURL.login?usr=$usr&pwd=$pwd');
   try {
     var response = await http.get(Uri.parse('$emploginapiURL.login?usr=$usr&pwd=$pwd'));
     var data = json.decode(response.body);

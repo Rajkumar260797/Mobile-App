@@ -1,3 +1,4 @@
+import 'package:homegenie/Screen/login.dart';
 import 'package:intl/intl.dart';
 import '../utils/api/event.dart';
 import 'package:flutter/material.dart';
@@ -36,7 +37,6 @@ class _HistoryListState extends State<HistoryList> {
   Future<void> _checkPing() async {
     try {
       var pingResult = await Check.pingpong();
-
       if (pingResult == false) {
         Warning.show(
           context,
@@ -44,7 +44,27 @@ class _HistoryListState extends State<HistoryList> {
           'Error',
         );
       } else {
-        DateTime now = DateTime.now();
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('token') ?? "";
+        final email = prefs.getString('email') ?? "";
+
+        final sessionValid = await Check.sessionActive(token, email);
+
+        if (!sessionValid) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Session expired. Please log in again."),
+              backgroundColor: Colors.red,
+            ),
+          );
+          await prefs.clear();
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const Login()),
+            (route) => false,
+          );
+          return;
+        }
+DateTime now = DateTime.now();
         fromDate = DateTime(now.year, now.month, 1); // 1st of this month
         toDate = now; // today
 
@@ -157,6 +177,8 @@ class _HistoryListState extends State<HistoryList> {
     final totalKm = calculateTotalDistance(filteredHistory);
     return Scaffold(
       appBar: AppBar(
+
+          iconTheme: const IconThemeData(color: Colors.white),
         backgroundColor: Colors.blue,
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -320,7 +342,11 @@ class _HistoryListState extends State<HistoryList> {
 
           Expanded(
             child: RefreshIndicator(
-              onRefresh: fetchHistoryData,
+              onRefresh: () async{
+
+                  await _checkPing();
+                  fetchHistoryData();
+                  },
               child:
                   filteredHistory.isEmpty
                       ? Center(

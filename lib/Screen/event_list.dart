@@ -1,3 +1,4 @@
+import 'package:homegenie/Screen/login.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
 import 'package:homegenie/utils/widget/warning.dart';
@@ -38,7 +39,6 @@ class _EventsPageState extends State<EventsPage> {
   Future<void> _checkPing() async {
     try {
       var pingResult = await Check.pingpong();
-
       if (pingResult == false) {
         Warning.show(
           context,
@@ -46,6 +46,26 @@ class _EventsPageState extends State<EventsPage> {
           'Error',
         );
       } else {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('token') ?? "";
+        final email = prefs.getString('email') ?? "";
+
+        final sessionValid = await Check.sessionActive(token, email);
+
+        if (!sessionValid) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Session expired. Please log in again."),
+              backgroundColor: Colors.red,
+            ),
+          );
+          await prefs.clear();
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const Login()),
+            (route) => false,
+          );
+          return;
+        }
         _searchController.addListener(_onSearchChanged);
 
         DateTime now = DateTime.now();
@@ -197,6 +217,7 @@ class _EventsPageState extends State<EventsPage> {
               ? Center(child: CircularProgressIndicator())
               : RefreshIndicator(
                 onRefresh: () async {
+                  await _checkPing();
                   await getEventDataForDate(
                     DateFormat('yyyy-MM-dd').format(selectedDate),
                   );

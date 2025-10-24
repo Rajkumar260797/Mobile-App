@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
+import 'package:homegenie/Screen/login.dart';
+
 import '../utils/api/event.dart';
 import '../utils/widget/warning.dart';
 import 'package:flutter/services.dart';
@@ -39,6 +41,8 @@ class _EventDetailsState extends State<EventDetails> {
   bool _wasRecordingBeforeCall = false;
   bool _shouldStartNewRecordingAfterCall = false;
 
+  bool _manualRecording = false;
+  bool _isRecording = false;
 
   Duration _recordingDuration = Duration.zero;
   Timer? _durationTimer;
@@ -47,7 +51,6 @@ class _EventDetailsState extends State<EventDetails> {
   final AudioPlayer _audioPlayer = AudioPlayer();
   late SharedPreferences prefs;
 
-
   @override
   void initState() {
     super.initState();
@@ -55,6 +58,21 @@ class _EventDetailsState extends State<EventDetails> {
     _listenToPhoneState();
   }
 
+  Future<void> _startManualRecording() async {
+    await AudioRecordingService().startRecording();
+    setState(() {
+      _isRecording = true;
+      _manualRecording = true;
+    });
+  }
+
+  Future<void> _stopManualRecording() async {
+    await AudioRecordingService().stopRecording();
+    setState(() {
+      _isRecording = false;
+      _manualRecording = false;
+    });
+  }
 
   void _listenToPhoneState() async {
     await Permission.phone.request();
@@ -122,33 +140,47 @@ class _EventDetailsState extends State<EventDetails> {
     super.dispose();
   }
 
+
+
+  
   Future<void> _checkPing() async {
     try {
-      setState(() {
-        _isLoading = true;
-      });
       var pingResult = await Check.pingpong();
-
       if (pingResult == false) {
         Warning.show(
           context,
           'ERP Site is not in working condition! Please try again later.',
           'Error',
         );
-        setState(() {
-          _isLoading = false;
-        });
       } else {
-        setState(() {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('token') ?? "";
+        final email = prefs.getString('email') ?? "";
+
+        final sessionValid = await Check.sessionActive(token, email);
+
+        if (!sessionValid) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Session expired. Please log in again."),
+              backgroundColor: Colors.red,
+            ),
+          );
+          await prefs.clear();
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const Login()),
+            (route) => false,
+          );
+          return;
+        }
+                setState(() {
           _isLoading = false;
         });
         _init();
+
       }
     } catch (e) {
       print('Error during ping: $e');
-      setState(() {
-        _isLoading = false;
-      });
     }
   }
 
@@ -170,21 +202,20 @@ class _EventDetailsState extends State<EventDetails> {
     });
   }
 
+String _formatTime(String? dateTime) {
+  if (dateTime == null || dateTime.isEmpty) return "--:--";
 
-
-  String _formatTime(String? dateTime) {
-    if (dateTime == null) return "--:--";
+  try {
     DateTime dt = DateTime.parse(dateTime);
     String period = dt.hour >= 12 ? "pm" : "am";
-    int hour =
-        dt.hour > 12
-            ? dt.hour - 12
-            : dt.hour == 0
-            ? 12
-            : dt.hour;
+    int hour = dt.hour > 12 ? dt.hour - 12 : dt.hour == 0 ? 12 : dt.hour;
     String minute = dt.minute.toString().padLeft(2, '0');
     return "$hour:$minute$period";
+  } catch (e) {
+    return "--:--"; // fallback if parsing fails
   }
+}
+
 
   String _calculateWorkingHours(String? checkIn, String? checkOut) {
     if (checkIn == null || checkOut == null) return "--:--";
@@ -296,10 +327,8 @@ class _EventDetailsState extends State<EventDetails> {
       String url = '$baseUrl/api/method/upload_file';
       var request = http.MultipartRequest('POST', Uri.parse(url));
 
-      request.fields['doctype'] =
-          '$doctype';
-      request.fields['docname'] =
-          docname ?? '';
+      request.fields['doctype'] = '$doctype';
+      request.fields['docname'] = docname ?? '';
       request.headers['Authorization'] = token;
       request.files.add(
         await http.MultipartFile.fromPath(
@@ -465,8 +494,8 @@ class _EventDetailsState extends State<EventDetails> {
   @override
   Widget build(BuildContext context) {
     Color getActionColor() {
-      final checkIn = eventData['event']['custom_check_in'];
-      final checkOut = eventData['event']['custom_check_out'];
+      final checkIn = eventData['event']?['custom_check_in']?? '';
+      final checkOut = eventData['event']?['custom_check_out']?? '';
 
       if ((checkIn == null || checkIn.isEmpty) &&
           (checkOut == null || checkOut.isEmpty)) {
@@ -480,8 +509,8 @@ class _EventDetailsState extends State<EventDetails> {
 
     String getButtonLabel() {
       // _checkPing();
-      final checkIn = eventData['event']['custom_check_in'];
-      final checkOut = eventData['event']['custom_check_out'];
+      final checkIn = eventData['event']?['custom_check_in']?? '';
+      final checkOut = eventData['event']?['custom_check_out']?? '';
 
       if ((checkIn == null || checkIn.isEmpty) &&
           (checkOut == null || checkOut.isEmpty)) {
@@ -499,14 +528,17 @@ class _EventDetailsState extends State<EventDetails> {
         appBar: AppBar(
           iconTheme: const IconThemeData(color: Colors.white),
           title: Text('Event Details', style: TextStyle(fontSize: 20)),
-          backgroundColor: Colors.blueAccent,
+          backgroundColor: Colors.blue,
         ),
         body:
             _isLoading
                 ? Center(child: CircularProgressIndicator())
                 : RefreshIndicator(
-                  onRefresh: _fetchData,
-                  color: Colors.blueAccent,
+                  onRefresh: ()async{
+    await _checkPing(); 
+                  _fetchData();
+                  },
+                  color: Colors.blue,
                   child: Padding(
                     padding: EdgeInsets.all(16),
                     child: Column(
@@ -516,7 +548,7 @@ class _EventDetailsState extends State<EventDetails> {
                           mainAxisAlignment: MainAxisAlignment.start,
                           children: [
                             CircleAvatar(
-                              backgroundColor: Colors.blueAccent,
+                              backgroundColor: Colors.blue,
                               radius: 40,
                               child: Text(
                                 (eventData['reference_details'] != null &&
@@ -532,7 +564,10 @@ class _EventDetailsState extends State<EventDetails> {
                                             false
                                         ? eventData['event']['name'][0] // Removed extra `?`
                                         : ''),
-                                style: TextStyle(fontSize: 18),
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  color: Colors.white,
+                                ),
                               ),
                             ),
 
@@ -616,7 +651,11 @@ class _EventDetailsState extends State<EventDetails> {
                           child: TabBarView(
                             children: [
                               RefreshIndicator(
-                                onRefresh: _fetchData,
+                                onRefresh: ()async{
+
+    await _checkPing(); 
+                                _fetchData();
+                                },
                                 child: SingleChildScrollView(
                                   physics:
                                       const AlwaysScrollableScrollPhysics(),
@@ -766,8 +805,8 @@ class _EventDetailsState extends State<EventDetails> {
                                                           true,
                                                         );
                                                         _fetchData();
-                                                        await AudioRecordingService()
-                                                            .startRecording();
+                                                        // await AudioRecordingService()
+                                                        //     .startRecording();
                                                       } else if (response['message']['status'] ==
                                                           "error") {
                                                         Warning.show(
@@ -888,8 +927,15 @@ class _EventDetailsState extends State<EventDetails> {
                                                         );
 
                                                         _fetchData(); // refresh
-                                                        await AudioRecordingService()
-                                                            .stopRecording();
+                                                        // await AudioRecordingService()
+                                                        //     .stopRecording();
+
+                                                        if (AudioRecordingService()
+                                                            .isRecording) {
+                                                          await AudioRecordingService()
+                                                              .stopRecording();
+                                                        }
+
                                                         final paths =
                                                             AudioRecordingService()
                                                                 .getAllRecordingPaths();
@@ -999,6 +1045,107 @@ class _EventDetailsState extends State<EventDetails> {
                                           ],
                                         ),
                                         Text(getButtonLabel()),
+                                        // Only show buttons if Checked In but not yet Checked Out
+                                        if (eventData['event']?['custom_check_in'] !=
+                                                null &&
+                                            (eventData['event']?['custom_check_out'] ==
+                                                    null ||
+                                                eventData['event']?['custom_check_out']
+                                                    .isEmpty)) ...[
+                                          const SizedBox(height: 16),
+
+                                          if (_isRecording) ...[
+                                            RecordingWaveAnimation(
+                                              isRecording: true,
+                                            ),
+                                            const SizedBox(height: 10),
+                                            ElevatedButton.icon(
+                                              icon: const Icon(
+                                                Icons.stop,
+                                                color: Colors.white,
+                                                size: 20,
+                                              ),
+                                              label: const Text(
+                                                "Stop Recording",
+                                                style: TextStyle(
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor:
+                                                    Colors.redAccent,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 18,
+                                                      vertical: 10,
+                                                    ),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(25),
+                                                ),
+                                                elevation: 4,
+                                              ),
+                                              onPressed: _stopManualRecording,
+                                            ),
+                                          ] else ...[
+                                            ElevatedButton.icon(
+                                              icon: const Icon(
+                                                Icons.mic,
+                                                color: Colors.white,
+                                                size: 20,
+                                              ),
+                                              label: const Text(
+                                                "Start Recording",
+                                                style: TextStyle(
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor:
+                                                    Colors.green.shade600,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 18,
+                                                      vertical: 10,
+                                                    ),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(25),
+                                                ),
+                                                elevation: 4,
+                                              ),
+                                              onPressed: _startManualRecording,
+                                            ),
+                                          ],
+                                        ],
+
+                                        StreamBuilder<Duration>(
+                                          stream:
+                                              AudioRecordingService()
+                                                  .timerService
+                                                  .timerStream, // Listening to timer
+                                          builder: (context, snapshot) {
+                                            if (snapshot.connectionState ==
+                                                ConnectionState.waiting) {
+                                              return Text(
+                                                "Recording Not Yet Started",
+                                              );
+                                            } else if (snapshot.hasData) {
+                                              final duration =
+                                                  snapshot.data ??
+                                                  Duration.zero;
+                                              return Text(
+                                                _formatDuration(duration),
+                                                style: TextStyle(fontSize: 20),
+                                              );
+                                            }
+                                            return Text(
+                                              "Error fetching timer data",
+                                            );
+                                          },
+                                        ),
                                         SizedBox(height: 20),
                                         Container(
                                           padding: EdgeInsets.all(20),
@@ -1028,7 +1175,7 @@ class _EventDetailsState extends State<EventDetails> {
                                                   Icon(Icons.timer),
                                                   Text(
                                                     _formatTime(
-                                                      eventData['event']?['custom_check_in'],
+                                                      eventData['event']?['custom_check_in']?? '',
                                                     ),
                                                   ),
                                                   Text("Check In"),
@@ -1039,7 +1186,7 @@ class _EventDetailsState extends State<EventDetails> {
                                                   Icon(Icons.timer),
                                                   Text(
                                                     _formatTime(
-                                                      eventData['event']?['custom_check_out'],
+                                                      eventData['event']?['custom_check_out']?? '',
                                                     ),
                                                   ),
                                                   Text("Check Out"),
@@ -1052,8 +1199,8 @@ class _EventDetailsState extends State<EventDetails> {
                                                     Icon(Icons.timer),
                                                     Text(
                                                       _calculateWorkingHours(
-                                                        eventData['event']?['custom_check_in'],
-                                                        eventData['event']?['custom_check_out'],
+                                                        eventData['event']?['custom_check_in'] ?? '',
+                                                        eventData['event']?['custom_check_out'] ?? '',
                                                       ),
                                                     ),
 
@@ -1064,57 +1211,17 @@ class _EventDetailsState extends State<EventDetails> {
                                             ],
                                           ),
                                         ),
-
-                                        if (AudioRecordingService()
-                                                .isRecording &&
-                                            !AudioRecordingService().isPaused)
-                                          Column(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.center,
-                                            children: [
-                                              if (AudioRecordingService()
-                                                      .isRecording &&
-                                                  !AudioRecordingService()
-                                                      .isPaused)
-                                                RecordingWaveAnimation(
-                                                  isRecording: true,
-                                                ),
-                                              const SizedBox(height: 8),
-                                            ],
-                                          ),
-
-                                        StreamBuilder<Duration>(
-                                          stream:
-                                              AudioRecordingService()
-                                                  .timerService
-                                                  .timerStream, // Listening to timer
-                                          builder: (context, snapshot) {
-                                            if (snapshot.connectionState ==
-                                                ConnectionState.waiting) {
-                                              return Text(
-                                                "Recording Not Yet Started",
-                                              );
-                                            } else if (snapshot.hasData) {
-                                              final duration =
-                                                  snapshot.data ??
-                                                  Duration.zero;
-                                              return Text(
-                                                _formatDuration(duration),
-                                                style: TextStyle(fontSize: 20),
-                                              );
-                                            }
-                                            return Text(
-                                              "Error fetching timer data",
-                                            );
-                                          },
-                                        ),
                                       ],
                                     ),
                                   ),
                                 ),
                               ),
                               RefreshIndicator(
-                                onRefresh: _fetchData,
+                                onRefresh: ()async{
+
+    await _checkPing(); 
+                                _fetchData();
+                                },
                                 child: SingleChildScrollView(
                                   physics:
                                       const AlwaysScrollableScrollPhysics(),
@@ -1127,7 +1234,7 @@ class _EventDetailsState extends State<EventDetails> {
                                         SizedBox(height: 20),
 
                                         Text(
-                                          'Name:${eventData['event']['name']}',
+                                          'Name:${eventData['event']?['name']?? ''}',
                                         ),
                                         SizedBox(height: 20),
                                         Row(
@@ -1205,17 +1312,17 @@ class _EventDetailsState extends State<EventDetails> {
                                         SizedBox(height: 20),
 
                                         Text(
-                                          'Event Type:${eventData['event']['event_type']}',
+                                          'Event Type:${eventData['event']?['event_type']?? ''}',
                                         ),
                                         SizedBox(height: 20),
 
                                         Text(
-                                          'Subject:${eventData['event']['subject']}',
+                                          'Subject:${eventData['event']?['subject']?? ''}',
                                         ),
                                         SizedBox(height: 20),
 
                                         Text(
-                                          'Owner:${eventData['event']['owner']}',
+                                          'Owner:${eventData['event']?['owner']?? ''}',
                                         ),
                                       ],
                                     ),

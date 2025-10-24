@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:homegenie/Screen/login.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:homegenie/utils/api/check_in_out.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,7 +15,6 @@ class HistoryOverview extends StatefulWidget {
   final String eventid;
 
   const HistoryOverview({super.key, required this.eventid});
-
 
   @override
   State<HistoryOverview> createState() => _HistoryOverviewState();
@@ -35,18 +35,42 @@ class _HistoryOverviewState extends State<HistoryOverview> {
   }
 
   Future<void> _checkPing() async {
-  try {
-    var pingResult = await Check.pingpong(); 
+    try {
+      var pingResult = await Check.pingpong();
+      if (pingResult == false) {
+        Warning.show(
+          context,
+          'ERP Site is not in working condition! Please try again later.',
+          'Error',
+        );
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('token') ?? "";
+        final email = prefs.getString('email') ?? "";
 
-    if (pingResult == false) {
-      Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
-    } else {
-      _init();  
+        final sessionValid = await Check.sessionActive(token, email);
+
+        if (!sessionValid) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Session expired. Please log in again."),
+              backgroundColor: Colors.red,
+            ),
+          );
+          await prefs.clear();
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const Login()),
+            (route) => false,
+          );
+          return;
+        }
+
+        _init();
+      }
+    } catch (e) {
+      print('Error during ping: $e');
     }
-  } catch (e) {
-    print('Error during ping: $e');
   }
-}
 
   Future<void> _init() async {
     prefs = await SharedPreferences.getInstance();
@@ -73,19 +97,20 @@ class _HistoryOverviewState extends State<HistoryOverview> {
     return "${dt.day.toString().padLeft(2, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.year.toString().substring(2)}";
   }
 
-  String _formatTime(String? dateTime) {
-    if (dateTime == null) return "--:--";
+String _formatTime(String? dateTime) {
+  if (dateTime == null || dateTime.isEmpty) return "--:--";
+
+  try {
     DateTime dt = DateTime.parse(dateTime);
     String period = dt.hour >= 12 ? "pm" : "am";
-    int hour =
-        dt.hour > 12
-            ? dt.hour - 12
-            : dt.hour == 0
-            ? 12
-            : dt.hour;
+    int hour = dt.hour > 12 ? dt.hour - 12 : dt.hour == 0 ? 12 : dt.hour;
     String minute = dt.minute.toString().padLeft(2, '0');
     return "$hour:$minute$period";
+  } catch (e) {
+    return "--:--"; // fallback if parsing fails
   }
+}
+
 
   String _calculateWorkingHours(String? checkIn, String? checkOut) {
     if (checkIn == null || checkOut == null) return "--:--";
@@ -106,7 +131,6 @@ class _HistoryOverviewState extends State<HistoryOverview> {
   }
 
   Future<void> _fetchHistoryOverview() async {
-
     final response = await Event.eventdetails(widget.eventid, context);
 
     if (response != Null) {
@@ -181,12 +205,10 @@ class _HistoryOverviewState extends State<HistoryOverview> {
     return true;
   }
 
-
   void launchDialer(String phoneNumber) async {
     final Uri dialUri = Uri(scheme: 'tel', path: phoneNumber);
     if (await canLaunchUrl(dialUri)) {
-      await launchUrl(dialUri,mode: LaunchMode.externalApplication,
-      );
+      await launchUrl(dialUri, mode: LaunchMode.externalApplication);
     } else {
       throw 'Could not launch $dialUri';
     }
@@ -207,6 +229,7 @@ class _HistoryOverviewState extends State<HistoryOverview> {
       );
     }
   }
+
   bool _isTodayEvent() {
     if (eventData['event']['starts_on'] == null) return false;
 
@@ -221,8 +244,8 @@ class _HistoryOverviewState extends State<HistoryOverview> {
   @override
   Widget build(BuildContext context) {
     Color getActionColor() {
-      final checkIn = eventData['event']['custom_check_in'];
-      final checkOut = eventData['event']['custom_check_out'];
+      final checkIn = eventData['event']?['custom_check_in'] ?? '';
+      final checkOut = eventData['event']?['custom_check_out'] ?? '';
 
       if ((checkIn == null || checkIn.isEmpty) &&
           (checkOut == null || checkOut.isEmpty)) {
@@ -235,8 +258,8 @@ class _HistoryOverviewState extends State<HistoryOverview> {
     }
 
     String getButtonLabel() {
-      final checkIn = eventData['event']['custom_check_in'];
-      final checkOut = eventData['event']['custom_check_out'];
+      final checkIn = eventData['event']?['custom_check_in'] ?? '';
+      final checkOut = eventData['event']?['custom_check_out'] ?? '';
 
       if ((checkIn == null || checkIn.isEmpty) &&
           (checkOut == null || checkOut.isEmpty)) {
@@ -252,6 +275,8 @@ class _HistoryOverviewState extends State<HistoryOverview> {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
+
+          iconTheme: const IconThemeData(color: Colors.white),
           title: Text('History Overview', style: TextStyle(fontSize: 20)),
           backgroundColor: Colors.blueAccent,
         ),
@@ -259,7 +284,10 @@ class _HistoryOverviewState extends State<HistoryOverview> {
             _isLoading
                 ? Center(child: CircularProgressIndicator())
                 : RefreshIndicator(
-                  onRefresh: _fetchData,
+                  onRefresh: () async {
+                    await _checkPing();
+                    _fetchData();
+                  },
                   color: Colors.blueAccent,
                   child: Padding(
                     padding: EdgeInsets.all(16),
@@ -286,7 +314,7 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                             false
                                         ? eventData['event']['name'][0] // Removed extra `?`
                                         : ''),
-                                style: TextStyle(fontSize: 18),
+                                style: TextStyle(fontSize: 18,color: Colors.white),
                               ),
                             ),
 
@@ -368,9 +396,13 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                           child: TabBarView(
                             children: [
                               RefreshIndicator(
-                                onRefresh: _fetchData,
+                                onRefresh: () async {
+                                  await _checkPing();
+                                  _fetchData();
+                                },
                                 child: SingleChildScrollView(
-                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
                                   padding: const EdgeInsets.all(16),
                                   child: Container(
                                     child: Column(
@@ -380,13 +412,13 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                         Row(
                                           mainAxisAlignment:
                                               MainAxisAlignment.center,
-                                
+
                                           children: [
                                             SizedBox(height: 250),
-                                
+
                                             GestureDetector(
                                               onTap: () async {},
-                                
+
                                               child: Stack(
                                                 alignment: Alignment.center,
                                                 children: [
@@ -443,7 +475,7 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                             borderRadius: BorderRadius.circular(
                                               12.0,
                                             ),
-                                
+
                                             boxShadow: [
                                               BoxShadow(
                                                 color: Colors.black.withOpacity(
@@ -464,7 +496,7 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                                   Icon(Icons.timer),
                                                   Text(
                                                     _formatTime(
-                                                      eventData['event']['custom_check_in'],
+                                                      eventData['event']?['custom_check_in']?? '',
                                                     ),
                                                   ),
                                                   Text("Check In"),
@@ -475,7 +507,7 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                                   Icon(Icons.timer),
                                                   Text(
                                                     _formatTime(
-                                                      eventData['event']['custom_check_out'],
+                                                      eventData['event']?['custom_check_out']?? '',
                                                     ),
                                                   ),
                                                   Text("Check Out"),
@@ -488,11 +520,11 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                                     Icon(Icons.timer),
                                                     Text(
                                                       _calculateWorkingHours(
-                                                        eventData['event']['custom_check_in'],
-                                                        eventData['event']['custom_check_out'],
+                                                        eventData['event']?['custom_check_in']?? '',
+                                                        eventData['event']?['custom_check_out']?? '',
                                                       ),
                                                     ),
-                                
+
                                                     Text("Working Hrs"),
                                                   ],
                                                 ),
@@ -506,10 +538,13 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                 ),
                               ),
                               RefreshIndicator(
-
-                                onRefresh: _fetchData,
+                                onRefresh: () async {
+                                  await _checkPing();
+                                  _fetchData();
+                                },
                                 child: SingleChildScrollView(
-                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
                                   padding: const EdgeInsets.all(16),
                                   child: Container(
                                     child: Column(
@@ -517,13 +552,14 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                           CrossAxisAlignment.start,
                                       children: [
                                         SizedBox(height: 20),
-                                
+
                                         Text(
-                                          'Name:${eventData['event']['name']}',
+                                          'Name:${eventData['event']?['name'] ?? ''}',
                                         ),
                                         SizedBox(height: 20),
                                         Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
                                           children: [
                                             Text(
                                               (eventData['reference_details'] !=
@@ -545,7 +581,9 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                               Row(
                                                 children: [
                                                   IconButton(
-                                                    icon: const Icon(Icons.call),
+                                                    icon: const Icon(
+                                                      Icons.call,
+                                                    ),
                                                     onPressed: () {
                                                       final phone =
                                                           eventData['reference_details'][0]['contact_mobile'];
@@ -557,7 +595,7 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                                       FontAwesomeIcons.whatsapp,
                                                       color: Colors.green,
                                                     ),
-                                
+
                                                     onPressed: () {
                                                       final phone =
                                                           eventData['reference_details'][0]['contact_mobile'];
@@ -569,8 +607,10 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                           ],
                                         ),
                                         SizedBox(height: 20),
-                                
-                                        Text('Title:${_getParticipantsTitles()}'),
+
+                                        Text(
+                                          'Title:${_getParticipantsTitles()}',
+                                        ),
                                         SizedBox(height: 20),
                                         Text(
                                           (eventData['reference_details'] !=
@@ -581,24 +621,24 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                               : 'Product Enquired:null',
                                         ),
                                         SizedBox(height: 20),
-                                
+
                                         Text(
-                                          'Distance Travelled:${eventData['event']['custom_distance']}',
+                                          'Distance Travelled:${eventData['event']?['custom_distance']??''}',
                                         ),
                                         SizedBox(height: 20),
-                                
+
                                         Text(
-                                          'Event Type:${eventData['event']['event_type']}',
+                                          'Event Type:${eventData['event']?['event_type']??''}',
                                         ),
                                         SizedBox(height: 20),
-                                
+
                                         Text(
-                                          'Subject:${eventData['event']['subject']}',
+                                          'Subject:${eventData['event']?['subject'] ?? ''}',
                                         ),
                                         SizedBox(height: 20),
-                                
+
                                         Text(
-                                          'Owner:${eventData['event']['owner']}',
+                                          'Owner:${eventData['event']?['owner'] ?? ''}',
                                         ),
                                       ],
                                     ),

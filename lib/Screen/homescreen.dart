@@ -1,4 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
+import 'package:http/http.dart' as http;
 import 'event_list.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
@@ -151,6 +155,27 @@ class _HomescreenState extends State<Homescreen> {
           'Error',
         );
       } else {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('token') ?? "";
+        final email = prefs.getString('email') ?? "";
+
+        final sessionValid = await Check.sessionActive(token, email);
+
+        if (!sessionValid) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Session expired. Please log in again."),
+              backgroundColor: Colors.red,
+            ),
+          );
+          await prefs.clear();
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const Login()),
+            (route) => false,
+          );
+          return;
+        }
+
         _init();
       }
     } catch (e) {
@@ -190,8 +215,6 @@ class _HomescreenState extends State<Homescreen> {
     setState(() {
       _version = '${packageInfo.version}+${packageInfo.buildNumber}';
     });
-    print(".....");
-    print(_version);
   }
 
   bool isAfterMidnight() {
