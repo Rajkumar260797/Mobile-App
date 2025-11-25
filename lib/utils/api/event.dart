@@ -248,7 +248,7 @@ final pingResult = await Check.pingpong();
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'Authorization': token ?? '', // 🔐 replace with real credentials
+        'Authorization': token ?? '',
       },
       body: jsonEncode({"user": user, "date": date}),
     );

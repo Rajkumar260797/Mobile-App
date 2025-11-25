@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:homegenie/Screen/login.dart';
 
 import '../utils/api/event.dart';
@@ -104,7 +105,7 @@ class _EventDetailsState extends State<EventDetails> {
             }
           }
 
-          await recordingService.startRecording(); // ✅ new file starts
+          await recordingService.startRecording();
         } else {
           await recordingService.resumeRecording();
         }
@@ -145,6 +146,26 @@ class _EventDetailsState extends State<EventDetails> {
   
   Future<void> _checkPing() async {
     try {
+              var connectivity = await Connectivity().checkConnectivity();
+
+    bool noInternet = false;
+
+    if (connectivity == ConnectivityResult.none) {
+      noInternet = true;
+    }
+
+    if (connectivity is List && connectivity.contains(ConnectivityResult.none)) {
+      noInternet = true;
+    }
+
+    if (noInternet) {
+      Warning.show(
+        context,
+        'No Internet Connection! Please check your network.',
+        'Error',
+      );
+      return;
+    }
       var pingResult = await Check.pingpong();
       if (pingResult == false) {
         Warning.show(
@@ -212,7 +233,7 @@ String _formatTime(String? dateTime) {
     String minute = dt.minute.toString().padLeft(2, '0');
     return "$hour:$minute$period";
   } catch (e) {
-    return "--:--"; // fallback if parsing fails
+    return "--:--";
   }
 }
 
@@ -447,7 +468,7 @@ String _formatTime(String? dateTime) {
                               setState(() {
                                 timerSeconds = 30;
                               });
-                              startTimer(); // restart timer
+                              startTimer();
                             }
                             : null,
                     child: const Text('Resend OTP'),
@@ -472,7 +493,7 @@ String _formatTime(String? dateTime) {
                       resendTimer?.cancel();
                       Navigator.of(
                         dialogContext,
-                      ).pop(true); // close dialog first
+                      ).pop(true);
 
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(content: Text('OTP Verified')),
@@ -499,16 +520,15 @@ String _formatTime(String? dateTime) {
 
       if ((checkIn == null || checkIn.isEmpty) &&
           (checkOut == null || checkOut.isEmpty)) {
-        return Colors.green; // Check In state
+        return Colors.green;
       } else if ((checkIn != null && checkIn.isNotEmpty) &&
           (checkOut == null || checkOut.isEmpty)) {
-        return Colors.red; // Check Out state
+        return Colors.red;
       }
-      return const Color.fromARGB(231, 175, 173, 173); // Already done
+      return const Color.fromARGB(231, 175, 173, 173);
     }
 
     String getButtonLabel() {
-      // _checkPing();
       final checkIn = eventData['event']?['custom_check_in']?? '';
       final checkOut = eventData['event']?['custom_check_out']?? '';
 
@@ -562,7 +582,7 @@ String _formatTime(String? dateTime) {
                                     : (eventData['event']?['name']
                                                 ?.isNotEmpty ??
                                             false
-                                        ? eventData['event']['name'][0] // Removed extra `?`
+                                        ? eventData['event']['name'][0]
                                         : ''),
                                 style: TextStyle(
                                   fontSize: 18,
@@ -689,7 +709,7 @@ String _formatTime(String? dateTime) {
                                                 final userEmail = prefs
                                                     .getString(
                                                       'email',
-                                                    ); // or userId
+                                                    );
                                                 final eventId = widget.eventid;
                                                 String? checkIn =
                                                     eventData['event']['custom_check_in'];
@@ -805,8 +825,7 @@ String _formatTime(String? dateTime) {
                                                           true,
                                                         );
                                                         _fetchData();
-                                                        // await AudioRecordingService()
-                                                        //     .startRecording();
+                                                        
                                                       } else if (response['message']['status'] ==
                                                           "error") {
                                                         Warning.show(
@@ -862,7 +881,6 @@ String _formatTime(String? dateTime) {
                                                     List<LatLng> path =
                                                         LocationTrackerService.getTrackedPoints();
 
-                                                    // 3. Convert to JSON-friendly format
                                                     List<Map<String, dynamic>>
                                                     locationLogs =
                                                         path
@@ -926,9 +944,7 @@ String _formatTime(String? dateTime) {
                                                           '$lat,$lng',
                                                         );
 
-                                                        _fetchData(); // refresh
-                                                        // await AudioRecordingService()
-                                                        //     .stopRecording();
+                                                        _fetchData();
 
                                                         if (AudioRecordingService()
                                                             .isRecording) {
@@ -964,7 +980,6 @@ String _formatTime(String? dateTime) {
                                                             }
                                                           }
 
-                                                          // Optionally reset after upload
                                                           AudioRecordingService()
                                                               .resetRecordings();
                                                         } else {
@@ -1045,7 +1060,6 @@ String _formatTime(String? dateTime) {
                                           ],
                                         ),
                                         Text(getButtonLabel()),
-                                        // Only show buttons if Checked In but not yet Checked Out
                                         if (eventData['event']?['custom_check_in'] !=
                                                 null &&
                                             (eventData['event']?['custom_check_out'] ==
@@ -1125,7 +1139,7 @@ String _formatTime(String? dateTime) {
                                           stream:
                                               AudioRecordingService()
                                                   .timerService
-                                                  .timerStream, // Listening to timer
+                                                  .timerStream,
                                           builder: (context, snapshot) {
                                             if (snapshot.connectionState ==
                                                 ConnectionState.waiting) {
@@ -1162,7 +1176,6 @@ String _formatTime(String? dateTime) {
                                                 ),
                                                 blurRadius: 10,
                                                 spreadRadius: 2,
-                                                // offset: Offset(3, 5),
                                               ),
                                             ],
                                           ),

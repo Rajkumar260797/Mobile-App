@@ -9,10 +9,11 @@ class LoginApi {
 
   static Future<Map<String, dynamic>> login(String usr, String pwd) async {
   final prefs = await SharedPreferences.getInstance();
-  print('$emploginapiURL.login?usr=$usr&pwd=$pwd');
+
   try {
     var response = await http.get(Uri.parse('$emploginapiURL.login?usr=$usr&pwd=$pwd'));
     var data = json.decode(response.body);
+
     if (response.statusCode == 401) {
       return {'error': 'Incorrect Username or Password'};
     }
@@ -31,7 +32,7 @@ class LoginApi {
       return {
         'name': data['full_name'],
         'employee_id': data['employee_id'],
-        'token': data['token'], // don't use [0] unless you're sure it's a list
+        'token': data['token'],
       };
     } else {
 

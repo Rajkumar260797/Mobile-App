@@ -1,3 +1,4 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:homegenie/Screen/login.dart';
 import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
@@ -38,6 +39,26 @@ class _EventsPageState extends State<EventsPage> {
 
   Future<void> _checkPing() async {
     try {
+              var connectivity = await Connectivity().checkConnectivity();
+
+    bool noInternet = false;
+
+    if (connectivity == ConnectivityResult.none) {
+      noInternet = true;
+    }
+
+    if (connectivity is List && connectivity.contains(ConnectivityResult.none)) {
+      noInternet = true;
+    }
+
+    if (noInternet) {
+      Warning.show(
+        context,
+        'No Internet Connection! Please check your network.',
+        'Error',
+      );
+      return;
+    }
       var pingResult = await Check.pingpong();
       if (pingResult == false) {
         Warning.show(
@@ -108,7 +129,7 @@ class _EventsPageState extends State<EventsPage> {
   }
 
   void _scrollToSelectedDate() {
-    if (!_scrollController.hasClients) return; // prevents crash
+    if (!_scrollController.hasClients) return;
 
     double screenWidth = MediaQuery.of(context).size.width;
     double itemWidth = 54.0;
@@ -150,7 +171,6 @@ class _EventsPageState extends State<EventsPage> {
       );
       eventList = response;
       filteredEventList = eventList;
-      print("✅ Events for $date: $eventList");
     } catch (e) {
       print("❌ Error: $e");
     } finally {

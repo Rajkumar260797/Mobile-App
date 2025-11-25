@@ -9,7 +9,6 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:overlay_support/overlay_support.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
-import 'package:connection_notifier/connection_notifier.dart';
 
 Future<void> main() async {
 
@@ -58,47 +57,42 @@ class _MyappState extends State<Myapp> {
 
   @override
   Widget build(BuildContext context) {
-    return ConnectionNotifier(
-      connectionNotificationOptions: ConnectionNotificationOptions(
-        alignment: Alignment.bottomCenter,
-      ),
-      child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          scaffoldBackgroundColor: Colors.white,
-          useMaterial3: true,
-
-          textTheme: GoogleFonts.poppinsTextTheme(),
-
-          appBarTheme: AppBarTheme(
-            systemOverlayStyle: const SystemUiOverlayStyle(
-              statusBarColor: Colors.transparent,
-              statusBarIconBrightness: Brightness.dark,
-              systemNavigationBarColor: Colors.white,
-              systemNavigationBarIconBrightness: Brightness.dark,
-            ),
-            backgroundColor: Colors.transparent,
-            titleTextStyle: GoogleFonts.poppins(
-              fontSize: 17,
-              fontWeight: FontWeight.normal,
-              color: Colors.white,
-            ),
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        scaffoldBackgroundColor: Colors.white,
+        useMaterial3: true,
+    
+        textTheme: GoogleFonts.poppinsTextTheme(),
+    
+        appBarTheme: AppBarTheme(
+          systemOverlayStyle: const SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: Brightness.dark,
+            systemNavigationBarColor: Colors.white,
+            systemNavigationBarIconBrightness: Brightness.dark,
           ),
-
-          elevatedButtonTheme: ElevatedButtonThemeData(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.deepPurple,
-              foregroundColor: Colors.white,
-              textStyle: GoogleFonts.poppins(fontSize: 16),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
+          backgroundColor: Colors.transparent,
+          titleTextStyle: GoogleFonts.poppins(
+            fontSize: 17,
+            fontWeight: FontWeight.normal,
+            color: Colors.white,
+          ),
+        ),
+    
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.deepPurple,
+            foregroundColor: Colors.white,
+            textStyle: GoogleFonts.poppins(fontSize: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
             ),
           ),
         ),
-        home: Splash(),
       ),
+      home: Splash(),
     );
   }
 }

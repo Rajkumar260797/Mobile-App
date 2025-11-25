@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:homegenie/Screen/login.dart';
@@ -36,6 +37,26 @@ class _HistoryOverviewState extends State<HistoryOverview> {
 
   Future<void> _checkPing() async {
     try {
+              var connectivity = await Connectivity().checkConnectivity();
+
+    bool noInternet = false;
+
+    if (connectivity == ConnectivityResult.none) {
+      noInternet = true;
+    }
+
+    if (connectivity is List && connectivity.contains(ConnectivityResult.none)) {
+      noInternet = true;
+    }
+
+    if (noInternet) {
+      Warning.show(
+        context,
+        'No Internet Connection! Please check your network.',
+        'Error',
+      );
+      return;
+    }
       var pingResult = await Check.pingpong();
       if (pingResult == false) {
         Warning.show(
@@ -90,13 +111,6 @@ class _HistoryOverviewState extends State<HistoryOverview> {
     });
   }
 
-  String _formatDate(String? dateTime) {
-    if (dateTime == null) return "--:--";
-
-    DateTime dt = DateTime.parse(dateTime);
-    return "${dt.day.toString().padLeft(2, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.year.toString().substring(2)}";
-  }
-
 String _formatTime(String? dateTime) {
   if (dateTime == null || dateTime.isEmpty) return "--:--";
 
@@ -107,7 +121,7 @@ String _formatTime(String? dateTime) {
     String minute = dt.minute.toString().padLeft(2, '0');
     return "$hour:$minute$period";
   } catch (e) {
-    return "--:--"; // fallback if parsing fails
+    return "--:--";
   }
 }
 
@@ -230,17 +244,6 @@ String _formatTime(String? dateTime) {
     }
   }
 
-  bool _isTodayEvent() {
-    if (eventData['event']['starts_on'] == null) return false;
-
-    DateTime eventDate = DateTime.parse(eventData['event']['starts_on']);
-    DateTime now = DateTime.now();
-
-    return eventDate.year == now.year &&
-        eventDate.month == now.month &&
-        eventDate.day == now.day;
-  }
-
   @override
   Widget build(BuildContext context) {
     Color getActionColor() {
@@ -249,12 +252,12 @@ String _formatTime(String? dateTime) {
 
       if ((checkIn == null || checkIn.isEmpty) &&
           (checkOut == null || checkOut.isEmpty)) {
-        return Colors.green; // Check In state
+        return Colors.green;
       } else if ((checkIn != null && checkIn.isNotEmpty) &&
           (checkOut == null || checkOut.isEmpty)) {
-        return Colors.red; // Check Out state
+        return Colors.red;
       }
-      return const Color.fromARGB(231, 175, 173, 173); // Already done
+      return const Color.fromARGB(231, 175, 173, 173);
     }
 
     String getButtonLabel() {
@@ -312,7 +315,7 @@ String _formatTime(String? dateTime) {
                                     : (eventData['event']?['name']
                                                 ?.isNotEmpty ??
                                             false
-                                        ? eventData['event']['name'][0] // Removed extra `?`
+                                        ? eventData['event']['name'][0]
                                         : ''),
                                 style: TextStyle(fontSize: 18,color: Colors.white),
                               ),
@@ -483,7 +486,6 @@ String _formatTime(String? dateTime) {
                                                 ),
                                                 blurRadius: 10,
                                                 spreadRadius: 2,
-                                                // offset: Offset(3, 5),
                                               ),
                                             ],
                                           ),

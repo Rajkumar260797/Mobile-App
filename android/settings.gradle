@@ -1,11 +1,3 @@
-// pluginManagement {
-//     repositories {
-//         google()
-//         mavenCentral()
-//         gradlePluginPortal()
-//     }
-// }
-
 pluginManagement {
     def flutterSdkPath = {
         def properties = new Properties()

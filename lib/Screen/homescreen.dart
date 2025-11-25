@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'package:http/http.dart' as http;
@@ -147,6 +148,26 @@ class _HomescreenState extends State<Homescreen> {
 
   Future<void> _checkPing() async {
     try {
+          var connectivity = await Connectivity().checkConnectivity();
+
+    bool noInternet = false;
+
+    if (connectivity == ConnectivityResult.none) {
+      noInternet = true;
+    }
+
+    if (connectivity is List && connectivity.contains(ConnectivityResult.none)) {
+      noInternet = true;
+    }
+    if (noInternet) {
+      Warning.show(
+        context,
+        'No Internet Connection! Please check your network.',
+        'Error',
+      );
+      return;
+    }
+
       var pingResult = await Check.pingpong();
       if (pingResult == false) {
         Warning.show(
@@ -223,8 +244,11 @@ class _HomescreenState extends State<Homescreen> {
   }
 
   Future<void> _fetchData() async {
+
+    bool ok = await _safeCheckPing();
+  if (!ok) return;
+
     await Future.wait([
-      _checkPing(),
       _setCurrentTime(),
       _getCurrentLocation(),
       _fetchEventList(),
@@ -236,18 +260,43 @@ class _HomescreenState extends State<Homescreen> {
     ]);
 
     if (mounted) {
-      setState(() {}); // just trigger rebuild
+      setState(() {});
     }
-    print(_checkedOut);
-    print(!_checkedOut);
   }
+
+  Future<bool> _safeCheckPing() async {
+  try {
+    var connectivity = await Connectivity().checkConnectivity();
+
+    final list = connectivity is List ? connectivity : [connectivity];
+
+    if (list.contains(ConnectivityResult.none)) {
+      Warning.show(context, 'No Internet Connection! Please check your network.', 'Error');
+      return false;
+    }
+
+    var pingResult = await Check.pingpong();
+
+    if (pingResult == false) {
+      Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
+      return false;
+    }
+
+    return true;
+
+  } catch (e) {
+    print("Ping error: $e");
+    return false;
+  }
+}
+
 
   bool _previousDayPendingCheckout = false;
   Future<void> _getStatusFromServer() async {
     final email = prefs.getString('email');
     if (email == null) return;
 
-    final response = await Check.getStatus(email); // Custom API call
+    final response = await Check.getStatus(email);
 
     setState(() {
       _checkedIn = response["checked_in"] ?? false;
@@ -317,17 +366,37 @@ class _HomescreenState extends State<Homescreen> {
               onPressed: () {
                 Navigator.of(
                   alertContext,
-                ).pop(); // Close the dialog when Cancel is selected
+                ).pop();
               },
             ),
             TextButton(
               child: Text("Logout", style: TextStyle(color: Colors.blueAccent)),
               onPressed: () async {
+                    var connectivity = await Connectivity().checkConnectivity();
+
+    bool noInternet = false;
+
+    if (connectivity == ConnectivityResult.none) {
+      noInternet = true;
+    }
+
+    if (connectivity is List && connectivity.contains(ConnectivityResult.none)) {
+      noInternet = true;
+    }
+
+    if (noInternet) {
+      Warning.show(
+        context,
+        'No Internet Connection! Please check your network.',
+        'Error',
+      );
+      return;
+    }
                 var pingResult = await Check.pingpong();
 
                 Navigator.of(
                   alertContext,
-                ).pop(); // Close the dialog before proceeding
+                ).pop();
 
                 if (pingResult == false) {
                   Warning.show(
@@ -335,9 +404,8 @@ class _HomescreenState extends State<Homescreen> {
                     'ERP Site is not in working condition! Please try again later.',
                     'Error',
                   );
-                  return; // Stop further logout process
+                  return;
                 } else {
-                  // Perform logout logic
                   SharedPreferences prefs =
                       await SharedPreferences.getInstance();
                   await prefs.clear();
@@ -395,9 +463,8 @@ class _HomescreenState extends State<Homescreen> {
 
     return WillPopScope(
       onWillPop: () async {
-        // Close the app when the back button is pressed
         SystemNavigator.pop();
-        return Future.value(false); // Prevent default back button behavior
+        return Future.value(false);
       },
       child: Scaffold(
         key: _scaffoldKey,
@@ -411,9 +478,9 @@ class _HomescreenState extends State<Homescreen> {
               Icons.menu,
               color: Colors.white,
               size: 30,
-            ), // Custom icon
+            ),
             onPressed: () {
-              _scaffoldKey.currentState?.openDrawer(); // Open drawer manually
+              _scaffoldKey.currentState?.openDrawer();
             },
           ),
         ),
@@ -474,7 +541,7 @@ class _HomescreenState extends State<Homescreen> {
               Padding(
                 padding: const EdgeInsets.all(12.0),
                 child: Text(
-                  'Version $_version', // <-- dynamically loaded version
+                  'Version $_version',
                   style: TextStyle(color: Colors.grey, fontSize: 14),
                 ),
               ),
@@ -602,9 +669,7 @@ class _HomescreenState extends State<Homescreen> {
                                             !_previousDayPendingCheckout)
                                         ? null
                                         : () async {
-                                          // setState(() {
-                                          //   _isActionLoading = true;
-                                          // });
+                                          
 
                                           await Action_Bottom.show(
                                             context: context,
@@ -632,7 +697,6 @@ class _HomescreenState extends State<Homescreen> {
                                               bool isNowCheckedIn,
                                             ) {
                                               setState(() {
-                                                // If we just checked out previous day
                                                 if (_previousDayPendingCheckout) {
                                                   _previousDayPendingCheckout =
                                                       false;
@@ -646,12 +710,8 @@ class _HomescreenState extends State<Homescreen> {
                                             },
                                           );
 
-                                          // await Future.delayed(Duration(seconds: 5));
                                           await _fetchData();
 
-                                          // setState(() {
-                                          //   _isActionLoading = false;
-                                          // });
                                         },
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor:
@@ -693,58 +753,6 @@ class _HomescreenState extends State<Homescreen> {
                         ),
                       ),
 
-                      // SizedBox(height: 10),
-                      // Padding(padding: EdgeInsets.all(10),
-                      //   child: Row(
-                      //     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      //     children: [
-                      //       Text("Today Mettings", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      //       ElevatedButton(onPressed: (){}, child:
-                      //       Text("See all", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold,color: Colors.grey)),
-                      //       style: ElevatedButton.styleFrom(backgroundColor: Colors.white,padding:EdgeInsets.all(1)),
-                      //       )
-                      //     ]
-                      //   ),
-                      // ),
-
-                      // Container(
-                      //   padding: EdgeInsets.all(12.0),
-                      //   margin: EdgeInsets.symmetric(horizontal: 10),
-                      //   decoration: BoxDecoration(
-                      //     color: Colors.blueAccent,
-                      //     borderRadius: BorderRadius.circular(12.0),
-                      //     border: Border.all(
-                      //       color: Colors.white,
-                      //       width: 0.5,
-                      //     ),
-                      //     boxShadow: [
-                      //       BoxShadow(
-                      //         color: Colors.black.withOpacity(0.3),
-                      //         blurRadius: 10,
-                      //         spreadRadius: 2,
-                      //         offset: Offset(3, 5),
-                      //       ),
-                      //     ],
-                      //   ),
-                      //   child: Column(
-                      //     crossAxisAlignment: CrossAxisAlignment.start,
-                      //     children: [
-                      //       SizedBox(height: 10),
-                      //       Row(
-                      //         children: [
-                      //           SizedBox(width: 10),
-                      //           Expanded(
-                      //             child: Text(
-                      //               "No Mettings Today",
-                      //               style: TextStyle(fontSize: 16,color: Colors.white),
-
-                      //             ),
-                      //           ),
-                      //         ],
-                      //       ),
-                      //     ],
-                      //   ),
-                      // ),
                       SizedBox(height: 10),
                       Padding(
                         padding: EdgeInsets.all(10),

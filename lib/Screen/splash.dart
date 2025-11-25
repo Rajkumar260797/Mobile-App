@@ -1,3 +1,4 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'login.dart';
 import 'homescreen.dart';
 import 'package:flutter/material.dart';
@@ -21,8 +22,28 @@ class _SplashState extends State<Splash> {
 
   Future<void> _checkPing() async {
   try {
-    var pingResult = await Check.pingpong(); 
+    var connectivity = await Connectivity().checkConnectivity();
 
+    bool noInternet = false;
+
+    if (connectivity == ConnectivityResult.none) {
+      noInternet = true;
+    }
+
+    if (connectivity is List && connectivity.contains(ConnectivityResult.none)) {
+      noInternet = true;
+    }
+
+    if (noInternet) {
+      Warning.show(
+        context,
+        'No Internet Connection! Please check your network.',
+        'Error',
+      );
+      return;
+    }
+
+    var pingResult = await Check.pingpong();
     if (pingResult == false) {
       Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
     } else {
@@ -69,7 +90,7 @@ class _SplashState extends State<Splash> {
                 child: SizedBox(
                   height: 100,
                   width: 300,
-                  child: Image.asset('assets/images/logo.png'),
+                  child: Image.asset('assets/images/logo.jpeg'),
                 ),
               ),
             ),

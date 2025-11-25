@@ -1,3 +1,4 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:homegenie/Screen/login.dart';
 import 'package:intl/intl.dart';
 import '../utils/api/event.dart';
@@ -36,6 +37,26 @@ class _HistoryListState extends State<HistoryList> {
 
   Future<void> _checkPing() async {
     try {
+              var connectivity = await Connectivity().checkConnectivity();
+
+    bool noInternet = false;
+
+    if (connectivity == ConnectivityResult.none) {
+      noInternet = true;
+    }
+
+    if (connectivity is List && connectivity.contains(ConnectivityResult.none)) {
+      noInternet = true;
+    }
+
+    if (noInternet) {
+      Warning.show(
+        context,
+        'No Internet Connection! Please check your network.',
+        'Error',
+      );
+      return;
+    }
       var pingResult = await Check.pingpong();
       if (pingResult == false) {
         Warning.show(
@@ -65,8 +86,8 @@ class _HistoryListState extends State<HistoryList> {
           return;
         }
 DateTime now = DateTime.now();
-        fromDate = DateTime(now.year, now.month, 1); // 1st of this month
-        toDate = now; // today
+        fromDate = now.subtract(const Duration(days: 1));
+        toDate = now;
 
         fetchHistoryData();
       }
@@ -75,42 +96,88 @@ DateTime now = DateTime.now();
     }
   }
 
-  Future<void> fetchHistoryData() async {
-    try {
-      prefs = await SharedPreferences.getInstance();
-      String username = prefs.getString('email') ?? '';
+Future<void> fetchHistoryData() async {
+  try {
+    prefs = await SharedPreferences.getInstance();
+    String username = prefs.getString('email') ?? '';
 
-      final String from = DateFormat('yyyy-MM-dd').format(fromDate!);
-      final String to = DateFormat('yyyy-MM-dd').format(toDate!);
+    final String from = DateFormat('yyyy-MM-dd').format(fromDate!);
+    final String to = DateFormat('yyyy-MM-dd').format(toDate!);
 
-      List<dynamic> response = await Event.HistoryList(
-        username,
-        from,
-        to,
-        context,
-      );
+    List<dynamic> response = await Event.HistoryList(
+      username,
+      from,
+      to,
+      context,
+    );
 
-      setState(() {
-        historyData =
-            response.map<Map<String, dynamic>>((entry) {
-              return {
-                'remarks': entry['subject'],
-                'from_time': DateTime.parse(entry['starts_on']),
-                'to_time': DateTime.parse(entry['ends_on']),
-                'total_hours': entry['custom_duration'],
-                'custom_distance': entry['custom_distance'] ?? '',
-                'name': entry['name'],
-              };
-            }).toList();
-        isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        errorMessage = e.toString();
-        isLoading = false;
-      });
+    for (var entry in response) {
+      final missing = _getMissingField(entry);
+
+      if (missing != null) {
+        String field = missing['field'];
+        Map<String, dynamic> badEntry = missing['entry'];
+
+        Warning.show(
+          context,
+          "Missing required field: $field\n"
+          "Entry Name: ${badEntry['name'] ?? 'Unknown'}\n"
+          "Please correct the data.",
+          "Error",
+        );
+
+        setState(() {
+          isLoading = false;
+        });
+        return;
+      }
+    }
+
+    setState(() {
+      historyData = response.map<Map<String, dynamic>>((entry) {
+        return {
+          'remarks': entry['subject'],
+          'from_time': DateTime.parse(entry['starts_on']),
+          'to_time': DateTime.parse(entry['ends_on']),
+          'total_hours': entry['custom_duration']?? '',
+          'custom_distance': entry['custom_distance'] ?? '',
+          'name': entry['name'],
+        };
+      }).toList();
+
+      isLoading = false;
+    });
+  } catch (e) {
+    setState(() {
+      errorMessage = e.toString();
+      isLoading = false;
+    });
+  }
+}
+
+
+Map<String, dynamic>? _getMissingField(Map<String, dynamic> entry) {
+  List<String> requiredFields = [
+    'subject',
+    'starts_on',
+    'ends_on',
+    'name',
+  ];
+
+  for (var field in requiredFields) {
+    var value = entry[field];
+
+    if (value == null || value.toString().trim().isEmpty) {
+      return {
+        'field': field,
+        'entry': entry,
+      };
     }
   }
+
+  return null;
+}
+
 
   double calculateTotalDistance(List<Map<String, dynamic>> data) {
     double totalMeters = 0.0;
@@ -122,10 +189,8 @@ DateTime now = DateTime.now();
         final value = raw.replaceAll('km', '').trim();
 
         try {
-          // Try parsing directly
           totalMeters += double.parse(value) * 1000;
         } catch (e) {
-          // Handle malformed strings like "1.18.1"
           final parts = value.split('.');
           double approx = 0.0;
           for (int i = 0; i < parts.length; i++) {
@@ -140,7 +205,7 @@ DateTime now = DateTime.now();
       }
     }
 
-    return totalMeters / 1000; // Return in km
+    return totalMeters / 1000;
   }
 
   @override
