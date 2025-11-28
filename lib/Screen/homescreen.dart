@@ -485,6 +485,7 @@ class _HomescreenState extends State<Homescreen> {
           ),
         ),
         drawer: Drawer(
+          backgroundColor: Colors.white,
           child: Column(
             children: [
               SizedBox(
@@ -669,7 +670,8 @@ class _HomescreenState extends State<Homescreen> {
                                             !_previousDayPendingCheckout)
                                         ? null
                                         : () async {
-                                          
+                                              bool ok = await _safeCheckPing();
+  if (!ok) return;
 
                                           await Action_Bottom.show(
                                             context: context,

@@ -11,7 +11,13 @@ class LoginApi {
   final prefs = await SharedPreferences.getInstance();
 
   try {
-    var response = await http.get(Uri.parse('$emploginapiURL.login?usr=$usr&pwd=$pwd'));
+    var response = await http.post(Uri.parse('$emploginapiURL.login'),
+          headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: jsonEncode({"usr": usr, "pwd": pwd}));
+
     var data = json.decode(response.body);
 
     if (response.statusCode == 401) {
