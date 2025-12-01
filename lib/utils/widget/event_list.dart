@@ -58,7 +58,6 @@ class EventCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Top Row with avatar, title, type, and button
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

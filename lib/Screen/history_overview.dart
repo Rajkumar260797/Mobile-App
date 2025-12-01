@@ -1,24 +1,21 @@
 import 'dart:async';
-import 'dart:convert';
-
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:homegenie/Screen/login.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:homegenie/utils/api/check_in_out.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
-import '../utils/api/event.dart';
-import '../utils/widget/location_tracker.dart';
-import '../utils/widget/warning.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
+import '../utils/api/event.dart';
+import '../utils/widget/warning.dart';
 import '../utils/api/location_api.dart';
 
 class HistoryOverview extends StatefulWidget {
   final String eventid;
 
   const HistoryOverview({super.key, required this.eventid});
-
 
   @override
   State<HistoryOverview> createState() => _HistoryOverviewState();
@@ -39,18 +36,62 @@ class _HistoryOverviewState extends State<HistoryOverview> {
   }
 
   Future<void> _checkPing() async {
-  try {
-    var pingResult = await Check.pingpong(); 
+    try {
+              var connectivity = await Connectivity().checkConnectivity();
 
-    if (pingResult == false) {
-      Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
-    } else {
-      _init();  
+    bool noInternet = false;
+
+    if (connectivity == ConnectivityResult.none) {
+      noInternet = true;
     }
-  } catch (e) {
-    print('Error during ping: $e');
+
+    if (connectivity is List && connectivity.contains(ConnectivityResult.none)) {
+      noInternet = true;
+    }
+
+    if (noInternet) {
+      Warning.show(
+        context,
+        'No Internet Connection! Please check your network.',
+        'Error',
+      );
+      return;
+    }
+      var pingResult = await Check.pingpong();
+      if (pingResult == false) {
+        Warning.show(
+          context,
+          'ERP Site is not in working condition! Please try again later.',
+          'Error',
+        );
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('token') ?? "";
+        final email = prefs.getString('email') ?? "";
+
+        final sessionValid = await Check.sessionActive(token, email);
+
+        if (!sessionValid) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Session expired. Please log in again."),
+              backgroundColor: Colors.red,
+            ),
+          );
+          await prefs.clear();
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const Login()),
+            (route) => false,
+          );
+          return;
+        }
+
+        _init();
+      }
+    } catch (e) {
+      print('Error during ping: $e');
+    }
   }
-}
 
   Future<void> _init() async {
     prefs = await SharedPreferences.getInstance();
@@ -70,26 +111,20 @@ class _HistoryOverviewState extends State<HistoryOverview> {
     });
   }
 
-  String _formatDate(String? dateTime) {
-    if (dateTime == null) return "--:--";
+String _formatTime(String? dateTime) {
+  if (dateTime == null || dateTime.isEmpty) return "--:--";
 
-    DateTime dt = DateTime.parse(dateTime);
-    return "${dt.day.toString().padLeft(2, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.year.toString().substring(2)}";
-  }
-
-  String _formatTime(String? dateTime) {
-    if (dateTime == null) return "--:--";
+  try {
     DateTime dt = DateTime.parse(dateTime);
     String period = dt.hour >= 12 ? "pm" : "am";
-    int hour =
-        dt.hour > 12
-            ? dt.hour - 12
-            : dt.hour == 0
-            ? 12
-            : dt.hour;
+    int hour = dt.hour > 12 ? dt.hour - 12 : dt.hour == 0 ? 12 : dt.hour;
     String minute = dt.minute.toString().padLeft(2, '0');
     return "$hour:$minute$period";
+  } catch (e) {
+    return "--:--";
   }
+}
+
 
   String _calculateWorkingHours(String? checkIn, String? checkOut) {
     if (checkIn == null || checkOut == null) return "--:--";
@@ -110,7 +145,6 @@ class _HistoryOverviewState extends State<HistoryOverview> {
   }
 
   Future<void> _fetchHistoryOverview() async {
-
     final response = await Event.eventdetails(widget.eventid, context);
 
     if (response != Null) {
@@ -185,12 +219,10 @@ class _HistoryOverviewState extends State<HistoryOverview> {
     return true;
   }
 
-
   void launchDialer(String phoneNumber) async {
     final Uri dialUri = Uri(scheme: 'tel', path: phoneNumber);
     if (await canLaunchUrl(dialUri)) {
-      await launchUrl(dialUri,mode: LaunchMode.externalApplication,
-      );
+      await launchUrl(dialUri, mode: LaunchMode.externalApplication);
     } else {
       throw 'Could not launch $dialUri';
     }
@@ -211,36 +243,26 @@ class _HistoryOverviewState extends State<HistoryOverview> {
       );
     }
   }
-  bool _isTodayEvent() {
-    if (eventData['event']['starts_on'] == null) return false;
-
-    DateTime eventDate = DateTime.parse(eventData['event']['starts_on']);
-    DateTime now = DateTime.now();
-
-    return eventDate.year == now.year &&
-        eventDate.month == now.month &&
-        eventDate.day == now.day;
-  }
 
   @override
   Widget build(BuildContext context) {
     Color getActionColor() {
-      final checkIn = eventData['event']['custom_check_in'];
-      final checkOut = eventData['event']['custom_check_out'];
+      final checkIn = eventData['event']?['custom_check_in'] ?? '';
+      final checkOut = eventData['event']?['custom_check_out'] ?? '';
 
       if ((checkIn == null || checkIn.isEmpty) &&
           (checkOut == null || checkOut.isEmpty)) {
-        return Colors.green; // Check In state
+        return Colors.green;
       } else if ((checkIn != null && checkIn.isNotEmpty) &&
           (checkOut == null || checkOut.isEmpty)) {
-        return Colors.red; // Check Out state
+        return Colors.red;
       }
-      return const Color.fromARGB(231, 175, 173, 173); // Already done
+      return const Color.fromARGB(231, 175, 173, 173);
     }
 
     String getButtonLabel() {
-      final checkIn = eventData['event']['custom_check_in'];
-      final checkOut = eventData['event']['custom_check_out'];
+      final checkIn = eventData['event']?['custom_check_in'] ?? '';
+      final checkOut = eventData['event']?['custom_check_out'] ?? '';
 
       if ((checkIn == null || checkIn.isEmpty) &&
           (checkOut == null || checkOut.isEmpty)) {
@@ -256,6 +278,8 @@ class _HistoryOverviewState extends State<HistoryOverview> {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
+
+          iconTheme: const IconThemeData(color: Colors.white),
           title: Text('History Overview', style: TextStyle(fontSize: 20)),
           backgroundColor: Colors.blueAccent,
         ),
@@ -263,7 +287,10 @@ class _HistoryOverviewState extends State<HistoryOverview> {
             _isLoading
                 ? Center(child: CircularProgressIndicator())
                 : RefreshIndicator(
-                  onRefresh: _fetchData,
+                  onRefresh: () async {
+                    await _checkPing();
+                    _fetchData();
+                  },
                   color: Colors.blueAccent,
                   child: Padding(
                     padding: EdgeInsets.all(16),
@@ -288,9 +315,9 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                     : (eventData['event']?['name']
                                                 ?.isNotEmpty ??
                                             false
-                                        ? eventData['event']['name'][0] // Removed extra `?`
+                                        ? eventData['event']['name'][0]
                                         : ''),
-                                style: TextStyle(fontSize: 18),
+                                style: TextStyle(fontSize: 18,color: Colors.white),
                               ),
                             ),
 
@@ -372,9 +399,13 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                           child: TabBarView(
                             children: [
                               RefreshIndicator(
-                                onRefresh: _fetchData,
+                                onRefresh: () async {
+                                  await _checkPing();
+                                  _fetchData();
+                                },
                                 child: SingleChildScrollView(
-                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
                                   padding: const EdgeInsets.all(16),
                                   child: Container(
                                     child: Column(
@@ -384,246 +415,13 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                         Row(
                                           mainAxisAlignment:
                                               MainAxisAlignment.center,
-                                
+
                                           children: [
                                             SizedBox(height: 250),
-                                
+
                                             GestureDetector(
-                                              onTap: () async {
-                                                // setState(() {
-                                                //   _isActionInProgress = true;
-                                                // });
-                                                // if (!_isTodayEvent()) {
-                                                //   Warning.show(
-                                                //     context,
-                                                //     'You can only check in/out on the event day.',
-                                                //     'Invalid Date',
-                                                //   );
-                                                //   return;
-                                                // }
-                                
-                                                // final userEmail = prefs.getString(
-                                                //   'email',
-                                                // ); // or userId
-                                                // final eventId = widget.eventid;
-                                                // String? checkIn =
-                                                //     eventData['event']['custom_check_in'];
-                                                // String? checkOut =
-                                                //     eventData['event']['custom_check_out'];
-                                
-                                                // Position position;
-                                                // try {
-                                                //   bool serviceEnabled =
-                                                //       await Geolocator.isLocationServiceEnabled();
-                                                //   if (!serviceEnabled) {
-                                                //     ScaffoldMessenger.of(
-                                                //       context,
-                                                //     ).showSnackBar(
-                                                //       SnackBar(
-                                                //         content: Text(
-                                                //           "Location services are disabled.",
-                                                //         ),
-                                                //       ),
-                                                //     );
-                                                //     return;
-                                                //   }
-                                
-                                                //   LocationPermission permission =
-                                                //       await Geolocator.checkPermission();
-                                                //   if (permission ==
-                                                //       LocationPermission.denied) {
-                                                //     permission =
-                                                //         await Geolocator.requestPermission();
-                                                //     if (permission ==
-                                                //         LocationPermission
-                                                //             .denied) {
-                                                //       ScaffoldMessenger.of(
-                                                //         context,
-                                                //       ).showSnackBar(
-                                                //         SnackBar(
-                                                //           content: Text(
-                                                //             "Location permission denied.",
-                                                //           ),
-                                                //         ),
-                                                //       );
-                                                //       return;
-                                                //     }
-                                                //   }
-                                
-                                                //   if (permission ==
-                                                //       LocationPermission
-                                                //           .deniedForever) {
-                                                //     ScaffoldMessenger.of(
-                                                //       context,
-                                                //     ).showSnackBar(
-                                                //       SnackBar(
-                                                //         content: Text(
-                                                //           "Location permission permanently denied.",
-                                                //         ),
-                                                //       ),
-                                                //     );
-                                                //     return;
-                                                //   }
-                                                //   bool hasPermission =
-                                                //       await _handleLocationPermission();
-                                                //   if (!hasPermission) return;
-                                
-                                                //   position =
-                                                //       await Geolocator.getCurrentPosition(
-                                                //         desiredAccuracy:
-                                                //             LocationAccuracy.high,
-                                                //       );
-                                                //   double lat = position.latitude;
-                                                //   double lng = position.longitude;
-                                                //   final address =
-                                                //       await LocationHelper.getAddressFromCoordinates(
-                                                //         lat,
-                                                //         lng,
-                                                //       );
-                                
-                                                //   final working_hrs =
-                                                //       _calculateWorkingHours(
-                                                //         eventData['event']['custom_check_in'],
-                                                //         DateTime.now().toString(),
-                                                //       );
-                                                //   if ((checkIn == null ||
-                                                //           checkIn.isEmpty) &&
-                                                //       (checkOut == null ||
-                                                //           checkOut.isEmpty)) {
-                                                //     final response =
-                                                //         await Event.eventCheckin(
-                                                //           userEmail,
-                                                //           eventId,
-                                                //           lat,
-                                                //           lng,
-                                                //           address,
-                                                //         );
-                                
-                                                //     if (response['message']['status'] ==
-                                                //         "success") {
-                                                //       Warning.show(
-                                                //         context,
-                                                //         response['message']['message'],
-                                                //         "Success",
-                                                //       );
-                                                //       await prefs.setBool('with_event', true);
-                                                //       _fetchData(); // refresh
-                                                //     } else if (response['message']['status'] ==
-                                                //         "error") {
-                                                //       Warning.show(
-                                                //         context,
-                                                //         response['message']['message'],
-                                                //         "Error",
-                                                //       );
-                                                //     }
-                                                //   } else if ((checkIn != null &&
-                                                //           checkIn.isNotEmpty) &&
-                                                //       (checkOut == null ||
-                                                //           checkOut.isEmpty)) {
-                                                //     LocationTrackerService.stopTracking();
-                                                //     double distance =
-                                                //         LocationTrackerService.calculateTotalDistance();
-                                
-                                                //     String
-                                                //     formattedDistanceWithUnit;
-                                
-                                                //     if (distance >= 1000) {
-                                                //       double km = distance / 1000;
-                                                //       formattedDistanceWithUnit =
-                                                //           '${km.toStringAsFixed(2)} km';
-                                                //     } else {
-                                                //       formattedDistanceWithUnit =
-                                                //           '${distance.toStringAsFixed(2)} m';
-                                                //     }
-                                
-                                                //     List<LatLng> path =
-                                                //         LocationTrackerService.getTrackedPoints();
-                                
-                                                //     // 3. Convert to JSON-friendly format
-                                                //     List<Map<String, dynamic>>
-                                                //     locationLogs =
-                                                //         path
-                                                //             .map(
-                                                //               (latLng) => {
-                                                //                 'latitude':
-                                                //                     latLng
-                                                //                         .latitude,
-                                                //                 'longitude':
-                                                //                     latLng
-                                                //                         .longitude,
-                                                //               },
-                                                //             )
-                                                //             .toList();
-                                
-                                                //     final last_lat_lng =
-                                                //         prefs.getString(
-                                                //           'last_lat_lng',
-                                                //         ) ??
-                                                //         '';
-                                
-                                                //     final response =
-                                                //         await Event.eventCheckout(
-                                                //           userEmail,
-                                                //           eventId,
-                                                //           lat,
-                                                //           lng,
-                                                //           address,
-                                                //           working_hrs,
-                                                //           formattedDistanceWithUnit,
-                                                //           last_lat_lng,
-                                                //           jsonEncode(
-                                                //             locationLogs,
-                                                //           ),
-                                                //         );
-                                
-                                                //     if (response['message']['status'] ==
-                                                //         "success") {
-                                                //       LocationTrackerService.startTracking(
-                                                //         start: LatLng(
-                                                //           position.latitude,
-                                                //           position.longitude,
-                                                //         ),
-                                                //       );
-                                
-                                                //       Warning.show(
-                                                //         context,
-                                                //         response['message']['message'],
-                                                //         "Success",
-                                                //       );
-                                                //       await prefs.setString(
-                                                //         'last_checkout_address',
-                                                //         address,
-                                                //       );
-                                
-                                                //       await prefs.setString(
-                                                //         'last_lat_lng',
-                                
-                                                //         '$lat,$lng',
-                                                //       );
-                                
-                                                //       _fetchData(); // refresh
-                                                //     }
-                                                //   } else {
-                                                //     Warning.show(
-                                                //       context,
-                                                //       "Already checked in and out",
-                                                //       "",
-                                                //     );
-                                                //   }
-                                                // } catch (e) {
-                                                //   print("Location error: $e");
-                                                //   Warning.show(
-                                                //     context,
-                                                //     "Failed to get location",
-                                                //     "Error",
-                                                //   );
-                                                // } finally {
-                                                //   setState(() {
-                                                //     _isActionInProgress = false;
-                                                //   });
-                                                // }
-                                              },
-                                
+                                              onTap: () async {},
+
                                               child: Stack(
                                                 alignment: Alignment.center,
                                                 children: [
@@ -680,7 +478,7 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                             borderRadius: BorderRadius.circular(
                                               12.0,
                                             ),
-                                
+
                                             boxShadow: [
                                               BoxShadow(
                                                 color: Colors.black.withOpacity(
@@ -688,7 +486,6 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                                 ),
                                                 blurRadius: 10,
                                                 spreadRadius: 2,
-                                                // offset: Offset(3, 5),
                                               ),
                                             ],
                                           ),
@@ -701,7 +498,7 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                                   Icon(Icons.timer),
                                                   Text(
                                                     _formatTime(
-                                                      eventData['event']['custom_check_in'],
+                                                      eventData['event']?['custom_check_in']?? '',
                                                     ),
                                                   ),
                                                   Text("Check In"),
@@ -712,7 +509,7 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                                   Icon(Icons.timer),
                                                   Text(
                                                     _formatTime(
-                                                      eventData['event']['custom_check_out'],
+                                                      eventData['event']?['custom_check_out']?? '',
                                                     ),
                                                   ),
                                                   Text("Check Out"),
@@ -725,11 +522,11 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                                     Icon(Icons.timer),
                                                     Text(
                                                       _calculateWorkingHours(
-                                                        eventData['event']['custom_check_in'],
-                                                        eventData['event']['custom_check_out'],
+                                                        eventData['event']?['custom_check_in']?? '',
+                                                        eventData['event']?['custom_check_out']?? '',
                                                       ),
                                                     ),
-                                
+
                                                     Text("Working Hrs"),
                                                   ],
                                                 ),
@@ -743,10 +540,13 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                 ),
                               ),
                               RefreshIndicator(
-
-                                onRefresh: _fetchData,
+                                onRefresh: () async {
+                                  await _checkPing();
+                                  _fetchData();
+                                },
                                 child: SingleChildScrollView(
-                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
                                   padding: const EdgeInsets.all(16),
                                   child: Container(
                                     child: Column(
@@ -754,13 +554,14 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                           CrossAxisAlignment.start,
                                       children: [
                                         SizedBox(height: 20),
-                                
+
                                         Text(
-                                          'Name:${eventData['event']['name']}',
+                                          'Name:${eventData['event']?['name'] ?? ''}',
                                         ),
                                         SizedBox(height: 20),
                                         Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
                                           children: [
                                             Text(
                                               (eventData['reference_details'] !=
@@ -782,7 +583,9 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                               Row(
                                                 children: [
                                                   IconButton(
-                                                    icon: const Icon(Icons.call),
+                                                    icon: const Icon(
+                                                      Icons.call,
+                                                    ),
                                                     onPressed: () {
                                                       final phone =
                                                           eventData['reference_details'][0]['contact_mobile'];
@@ -794,7 +597,7 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                                       FontAwesomeIcons.whatsapp,
                                                       color: Colors.green,
                                                     ),
-                                
+
                                                     onPressed: () {
                                                       final phone =
                                                           eventData['reference_details'][0]['contact_mobile'];
@@ -806,8 +609,10 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                           ],
                                         ),
                                         SizedBox(height: 20),
-                                
-                                        Text('Title:${_getParticipantsTitles()}'),
+
+                                        Text(
+                                          'Title:${_getParticipantsTitles()}',
+                                        ),
                                         SizedBox(height: 20),
                                         Text(
                                           (eventData['reference_details'] !=
@@ -818,24 +623,24 @@ class _HistoryOverviewState extends State<HistoryOverview> {
                                               : 'Product Enquired:null',
                                         ),
                                         SizedBox(height: 20),
-                                
+
                                         Text(
-                                          'Distance Travelled:${eventData['event']['custom_distance']}',
+                                          'Distance Travelled:${eventData['event']?['custom_distance']??''}',
                                         ),
                                         SizedBox(height: 20),
-                                
+
                                         Text(
-                                          'Event Type:${eventData['event']['event_type']}',
+                                          'Event Type:${eventData['event']?['event_type']??''}',
                                         ),
                                         SizedBox(height: 20),
-                                
+
                                         Text(
-                                          'Subject:${eventData['event']['subject']}',
+                                          'Subject:${eventData['event']?['subject'] ?? ''}',
                                         ),
                                         SizedBox(height: 20),
-                                
+
                                         Text(
-                                          'Owner:${eventData['event']['owner']}',
+                                          'Owner:${eventData['event']?['owner'] ?? ''}',
                                         ),
                                       ],
                                     ),

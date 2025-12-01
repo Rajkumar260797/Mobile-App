@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:homegenie/utils/widget/warning.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -14,8 +13,7 @@ class Check{
       headers: {
         'Accept': 'application/json',
       },
-    ).timeout(Duration(seconds: 2)); 
-
+    ); 
     if (response.statusCode == 200) {
       final data = json.decode(response.body);
 
@@ -28,7 +26,27 @@ class Check{
     print("Error in pingpong: $e");
     return false;
   }
-}   
+}
+static Future<bool> sessionActive(String token, String email) async {
+    final baseUrl = dotenv.env['SITE_URL'] ?? '';
+    final url = Uri.parse('$baseUrl/api/method/frappe.auth.get_logged_user');
+
+    try {
+      final response = await http.post(
+        url,
+        headers: {"Authorization": token},
+      );
+
+      if (response.statusCode == 200) {
+        var data = json.decode(response.body);
+        return data['message'] == email;
+      }
+      return false;
+    } catch (e) {
+      print("Session check error: $e");
+      return false;
+    }
+  }
 
   static final methodapiUrl = dotenv.env['URL'];
   static String? token;
@@ -100,14 +118,15 @@ static Future<Map<String, dynamic>> getStatus(String email) async {
           "Authorization": token ?? "",
         },
       );
+
       final data = json.decode(response.body);
       String message = data['message'].toString();
-    String status = "Success"; // default
+    String status = "Success";
 
     if (response.statusCode == 403) {
-      status = "Warning"; // permission-related or validation issue
+      status = "Warning";
     } else if (response.statusCode == 400 || response.statusCode == 500) {
-      status = "Error"; // bad request or server error
+      status = "Error";
     } else if (message.contains("Already checked out")) {
       status = "Warning";
     } else if (message.contains("CheckIn Already Exists")) {
@@ -142,7 +161,6 @@ static Future<Map<String, dynamic>> getStatus(String email) async {
 
       if (response.statusCode == 200) {
         final SharedPreferences prefs = await SharedPreferences.getInstance();
-        // prefs.setString("outtime", Utils.getTime());
         if(data['message']==true){
           return true;
         }
@@ -171,7 +189,6 @@ static Future<Map<String, dynamic>> getStatus(String email) async {
 
       if (response.statusCode == 200) {
         final SharedPreferences prefs = await SharedPreferences.getInstance();
-        // prefs.setString("outtime", Utils.getTime());
         if(data['message']==true){
           return true;
         }

@@ -1,9 +1,11 @@
+import 'package:connectivity_plus/connectivity_plus.dart';
+
+import '../utils/api/login_api.dart';
+import '../utils/widget/warning.dart';
 import 'package:flutter/material.dart';
 import 'package:homegenie/Screen/homescreen.dart';
 import 'package:homegenie/utils/api/check_in_out.dart';
-import '../utils/api/login_api.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../utils/widget/warning.dart';
 
 class Login extends StatefulWidget {
   const Login({super.key});
@@ -26,6 +28,26 @@ class _LoginState extends State<Login> {
   }
   Future<void> _checkPing() async {
   try {
+        var connectivity = await Connectivity().checkConnectivity();
+
+    bool noInternet = false;
+
+    if (connectivity == ConnectivityResult.none) {
+      noInternet = true;
+    }
+
+    if (connectivity is List && connectivity.contains(ConnectivityResult.none)) {
+      noInternet = true;
+    }
+
+    if (noInternet) {
+      Warning.show(
+        context,
+        'No Internet Connection! Please check your network.',
+        'Error',
+      );
+      return;
+    }
     var pingResult = await Check.pingpong(); 
 
     if (pingResult == false) {
@@ -79,7 +101,6 @@ class _LoginState extends State<Login> {
     try {
       Map<String, dynamic> user = await LoginApi.login(email, passwordValue);
       setState(() => _isLoading = false);
-
       if (user.containsKey('error')) {
         Warning.show(context, user['error'], "Warning");
         return;
@@ -132,13 +153,13 @@ class _LoginState extends State<Login> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: <Widget>[
-                      SizedBox(height: 150), // Adjusted for image placement
+                      SizedBox(height: 150),
                       Image.asset(
-                        'assets/images/logo.png',
-                        width: 300,
+                        'assets/images/loginlogo.jpeg',
+                        width: 500,
                         height: 100,
-                      ), // Image added here
-                      SizedBox(height: 30), // Space after image
+                      ),
+                      SizedBox(height: 30),
                       Text(
                         "Login to Continue Your Account",
                         style: TextStyle(
@@ -186,7 +207,6 @@ class _LoginState extends State<Login> {
           //     context, 'Please enter your mobile number', "Error");
         }
         // if (value.length != 10) {
-        //   print("test1");
         //   // return Warning.show(
         //   //     context, 'Please enter a valid 10-digit mobile number', "Error");
         // }

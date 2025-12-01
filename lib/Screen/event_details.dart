@@ -1,18 +1,27 @@
+import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:homegenie/Screen/login.dart';
 
+import '../utils/api/event.dart';
+import '../utils/widget/warning.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import '../utils/api/location_api.dart';
+import 'package:http/http.dart' as http;
+import 'package:just_audio/just_audio.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:phone_state/phone_state.dart';
+import '../utils/widget/location_tracker.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:homegenie/utils/api/check_in_out.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../utils/api/event.dart';
-import '../utils/widget/location_tracker.dart';
-import '../utils/widget/warning.dart';
-import 'package:url_launcher/url_launcher.dart';
-
-import '../utils/api/location_api.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:homegenie/utils/widget/audio_recording_service.dart';
 
 class EventDetails extends StatefulWidget {
   final String eventid;
@@ -28,30 +37,173 @@ class _EventDetailsState extends State<EventDetails> {
 
   bool _isLoading = false;
   bool _isActionInProgress = false;
+  bool _isFileLoaded = false;
+  bool _isPlaying = false;
+  bool _wasRecordingBeforeCall = false;
+  bool _shouldStartNewRecordingAfterCall = false;
 
+  bool _manualRecording = false;
+  bool _isRecording = false;
+
+  Duration _recordingDuration = Duration.zero;
+  Timer? _durationTimer;
+  ValueNotifier<Duration>? _timerNotifier;
+
+  final AudioPlayer _audioPlayer = AudioPlayer();
   late SharedPreferences prefs;
 
   @override
   void initState() {
     super.initState();
-    print('event initState called');
     _checkPing();
+    _listenToPhoneState();
   }
 
-  Future<void> _checkPing() async {
-  try {
-    var pingResult = await Check.pingpong(); 
+  Future<void> _startManualRecording() async {
+    await AudioRecordingService().startRecording();
+    setState(() {
+      _isRecording = true;
+      _manualRecording = true;
+    });
+  }
 
-    if (pingResult == false) {
-      Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
-    } else {
-      _init();  
+  Future<void> _stopManualRecording() async {
+    await AudioRecordingService().stopRecording();
+    setState(() {
+      _isRecording = false;
+      _manualRecording = false;
+    });
+  }
+
+  void _listenToPhoneState() async {
+    await Permission.phone.request();
+
+    PhoneState.stream.listen((PhoneState state) async {
+      final status = state.status;
+      final recordingService = AudioRecordingService();
+
+      if ((status == PhoneStateStatus.CALL_INCOMING ||
+          status == PhoneStateStatus.CALL_STARTED)) {
+        if (recordingService.isRecording && !recordingService.isPaused) {
+          await recordingService.pauseRecording();
+          _wasRecordingBeforeCall = true;
+        }
+
+        if (status == PhoneStateStatus.CALL_STARTED) {
+          _shouldStartNewRecordingAfterCall = true;
+        }
+      } else if (status == PhoneStateStatus.CALL_ENDED &&
+          _wasRecordingBeforeCall) {
+        if (_shouldStartNewRecordingAfterCall) {
+          await recordingService.stopRecording();
+
+          final path = recordingService.lastRecordingPath;
+          if (path != null && File(path).existsSync()) {
+            final duration = await _getAudioDuration(path);
+            if (duration.inSeconds < 1) {
+              File(path).deleteSync();
+            }
+          }
+
+          await recordingService.startRecording();
+        } else {
+          await recordingService.resumeRecording();
+        }
+
+        _wasRecordingBeforeCall = false;
+        _shouldStartNewRecordingAfterCall = false;
+      }
+    });
+  }
+
+  Future<Duration> _getAudioDuration(String path) async {
+    final player = AudioPlayer();
+    try {
+      await player.setFilePath(path);
+      return player.duration ?? Duration.zero;
+    } catch (_) {
+      return Duration.zero;
+    } finally {
+      await player.dispose();
     }
-  } catch (e) {
-    print('Error during ping: $e');
   }
-}
 
+  String _formatDuration(Duration d) {
+    String twoDigits(int n) => n.toString().padLeft(2, '0');
+    final minutes = twoDigits(d.inMinutes.remainder(60));
+    final seconds = twoDigits(d.inSeconds.remainder(60));
+    return "${twoDigits(d.inHours)}:$minutes:$seconds";
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
+  }
+
+
+
+  
+  Future<void> _checkPing() async {
+    try {
+              var connectivity = await Connectivity().checkConnectivity();
+
+    bool noInternet = false;
+
+    if (connectivity == ConnectivityResult.none) {
+      noInternet = true;
+    }
+
+    if (connectivity is List && connectivity.contains(ConnectivityResult.none)) {
+      noInternet = true;
+    }
+
+    if (noInternet) {
+      Warning.show(
+        context,
+        'No Internet Connection! Please check your network.',
+        'Error',
+      );
+      return;
+    }
+      var pingResult = await Check.pingpong();
+      if (pingResult == false) {
+        Warning.show(
+          context,
+          'ERP Site is not in working condition! Please try again later.',
+          'Error',
+        );
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('token') ?? "";
+        final email = prefs.getString('email') ?? "";
+
+        final sessionValid = await Check.sessionActive(token, email);
+
+        if (!sessionValid) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Session expired. Please log in again."),
+              backgroundColor: Colors.red,
+            ),
+          );
+          await prefs.clear();
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const Login()),
+            (route) => false,
+          );
+          return;
+        }
+                setState(() {
+          _isLoading = false;
+        });
+        _init();
+
+      }
+    } catch (e) {
+      print('Error during ping: $e');
+    }
+  }
 
   Future<void> _init() async {
     prefs = await SharedPreferences.getInstance();
@@ -64,35 +216,27 @@ class _EventDetailsState extends State<EventDetails> {
       _isLoading = true;
     });
 
-    await Future.wait([
-      _fetchEventDetails()
-    ]);
+    await Future.wait([_fetchEventDetails()]);
 
     setState(() {
       _isLoading = false;
     });
   }
 
-  String _formatDate(String? dateTime) {
-    if (dateTime == null) return "--:--";
+String _formatTime(String? dateTime) {
+  if (dateTime == null || dateTime.isEmpty) return "--:--";
 
-    DateTime dt = DateTime.parse(dateTime);
-    return "${dt.day.toString().padLeft(2, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.year.toString().substring(2)}";
-  }
-
-  String _formatTime(String? dateTime) {
-    if (dateTime == null) return "--:--";
+  try {
     DateTime dt = DateTime.parse(dateTime);
     String period = dt.hour >= 12 ? "pm" : "am";
-    int hour =
-        dt.hour > 12
-            ? dt.hour - 12
-            : dt.hour == 0
-            ? 12
-            : dt.hour;
+    int hour = dt.hour > 12 ? dt.hour - 12 : dt.hour == 0 ? 12 : dt.hour;
     String minute = dt.minute.toString().padLeft(2, '0');
     return "$hour:$minute$period";
+  } catch (e) {
+    return "--:--";
   }
+}
+
 
   String _calculateWorkingHours(String? checkIn, String? checkOut) {
     if (checkIn == null || checkOut == null) return "--:--";
@@ -186,30 +330,57 @@ class _EventDetailsState extends State<EventDetails> {
     return true;
   }
 
-  // void launchDialer(String phoneNumber) async {
-  //   final Uri dialUri = Uri(scheme: 'tel', path: phoneNumber);
-  //   if (await canLaunchUrl(dialUri)) {
-  //     await launchUrl(dialUri,mode: LaunchMode.externalApplication,);
-  //   } else {
-  //     throw 'Could not launch $dialUri';
-  //   }
-  // }
+  Future<void> uploadAudioToERPNext({
+    required String filePath,
+    required String doctype,
+    required String docname,
+    required String baseUrl,
+  }) async {
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final String? token = prefs.getString('token');
+
+      if (token == null) {
+        print("❌ No token found in SharedPreferences.");
+        return;
+      }
+
+      String url = '$baseUrl/api/method/upload_file';
+      var request = http.MultipartRequest('POST', Uri.parse(url));
+
+      request.fields['doctype'] = '$doctype';
+      request.fields['docname'] = docname ?? '';
+      request.headers['Authorization'] = token;
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'file',
+          filePath,
+          filename: 'event.mp3',
+        ),
+      );
+
+      var response = await request.send();
+      var responseData = await response.stream.bytesToString();
+
+      if (response.statusCode == 200) {
+        var jsonResponse = jsonDecode(responseData);
+        print("✅ File uploaded successfully: $jsonResponse");
+      } else {
+        print("❌ Upload failed: ${response.statusCode} - $responseData");
+      }
+    } catch (e) {
+      print("❌ Upload error: $e");
+    }
+  }
 
   void launchDialer(String phoneNumber) async {
-  final Uri dialUri = Uri(scheme: 'tel', path: phoneNumber);
-  print('Trying to launch: $dialUri');
-  if (await canLaunchUrl(dialUri)) {
-    print('Can launch, trying...');
-    await launchUrl(
-      dialUri,
-      mode: LaunchMode.externalApplication,
-    );
-    print('Dialer launched');
-  } else {
-    print('Cannot launch $dialUri');
+    final Uri dialUri = Uri(scheme: 'tel', path: phoneNumber);
+    if (await canLaunchUrl(dialUri)) {
+      await launchUrl(dialUri, mode: LaunchMode.externalApplication);
+    } else {
+      print('Cannot launch $dialUri');
+    }
   }
-}
-
 
   void openWhatsAppChat(String phoneNumber) async {
     final cleanedNumber = phoneNumber.replaceAll(RegExp(r'\D'), '');
@@ -237,135 +408,129 @@ class _EventDetailsState extends State<EventDetails> {
         eventDate.month == now.month &&
         eventDate.day == now.day;
   }
-Future<bool> showOTPDialog(BuildContext context) async {
-  TextEditingController otpController = TextEditingController();
-  int timerSeconds = 30;
-  Timer? resendTimer;
 
-  Future<void> sendOtp() async {
-    await Event.sendOtp(widget.eventid, context);
-  }
+  Future<bool> showOTPDialog(BuildContext context) async {
+    TextEditingController otpController = TextEditingController();
+    int timerSeconds = 30;
+    Timer? resendTimer;
 
-  await sendOtp(); // Initial OTP send
+    Future<void> sendOtp() async {
+      await Event.sendOtp(widget.eventid, context);
+    }
 
-  return await showDialog<bool>(
-    context: context,
-    barrierDismissible: false,
-    builder: (BuildContext dialogContext) {
-      return StatefulBuilder(
-        builder: (context, setState) {
-          // Start the timer inside the builder so we have access to setState
-          void startTimer() {
-            resendTimer?.cancel();
-            resendTimer = Timer.periodic(Duration(seconds: 1), (timer) {
-              if (timerSeconds == 0) {
-                timer.cancel();
-              } else {
-                setState(() {
-                  timerSeconds--;
-                });
-              }
-            });
-          }
+    await sendOtp();
 
-          // Start timer on first build only
-          if (resendTimer == null) {
-            startTimer();
-          }
+    return await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            void startTimer() {
+              resendTimer?.cancel();
+              resendTimer = Timer.periodic(Duration(seconds: 1), (timer) {
+                if (timerSeconds == 0) {
+                  timer.cancel();
+                } else {
+                  setState(() {
+                    timerSeconds--;
+                  });
+                }
+              });
+            }
 
-          return AlertDialog(
-            title: const Text('Enter OTP to Confirm'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: otpController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'OTP'),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  timerSeconds > 0
-                      ? 'Resend OTP in $timerSeconds sec'
-                      : 'Didn’t receive it?',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
+            if (resendTimer == null) {
+              startTimer();
+            }
+
+            return AlertDialog(
+              title: const Text('Enter OTP to Confirm'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: otpController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'OTP'),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    timerSeconds > 0
+                        ? 'Resend OTP in $timerSeconds sec'
+                        : 'Didn’t receive it?',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  TextButton(
+                    onPressed:
+                        timerSeconds == 0
+                            ? () async {
+                              await sendOtp();
+                              setState(() {
+                                timerSeconds = 30;
+                              });
+                              startTimer();
+                            }
+                            : null,
+                    child: const Text('Resend OTP'),
+                  ),
+                ],
+              ),
+              actions: [
                 TextButton(
-                  onPressed: timerSeconds == 0
-                      ? () async {
-                          await sendOtp();
-                          setState(() {
-                            timerSeconds = 30;
-                          });
-                          startTimer(); // restart timer
-                        }
-                      : null,
-                  child: const Text('Resend OTP'),
-                )
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  resendTimer?.cancel();
-                  Navigator.of(dialogContext).pop(false);
-                },
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  final isValid = await Event.verifyOtp(
-                      otpController.text, widget.eventid);
-                  if (isValid) {
+                  onPressed: () {
                     resendTimer?.cancel();
-                    Navigator.of(dialogContext).pop(true);  // close dialog first
+                    Navigator.of(dialogContext).pop(false);
+                  },
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    final isValid = await Event.verifyOtp(
+                      otpController.text,
+                      widget.eventid,
+                    );
+                    if (isValid) {
+                      resendTimer?.cancel();
+                      Navigator.of(
+                        dialogContext,
+                      ).pop(true);
 
-ScaffoldMessenger.of(context).showSnackBar(
-  const SnackBar(content: Text('OTP Verified')),
-);
-
-                  } else {
-
-                    Warning.show(
-                                                    context,
-                                                    'Invalid OTP',
-                                                    'Error',
-                                                  );
-                    
-                  }
-                },
-                child: const Text('Submit'),
-              ),
-            ],
-          );
-        },
-      );
-    },
-  ).then((value) => value ?? false);
-}
-
-
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('OTP Verified')),
+                      );
+                    } else {
+                      Warning.show(context, 'Invalid OTP', 'Error');
+                    }
+                  },
+                  child: const Text('Submit'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    ).then((value) => value ?? false);
+  }
 
   @override
   Widget build(BuildContext context) {
     Color getActionColor() {
-      final checkIn = eventData['event']['custom_check_in'];
-      final checkOut = eventData['event']['custom_check_out'];
+      final checkIn = eventData['event']?['custom_check_in']?? '';
+      final checkOut = eventData['event']?['custom_check_out']?? '';
 
       if ((checkIn == null || checkIn.isEmpty) &&
           (checkOut == null || checkOut.isEmpty)) {
-        return Colors.green; // Check In state
+        return Colors.green;
       } else if ((checkIn != null && checkIn.isNotEmpty) &&
           (checkOut == null || checkOut.isEmpty)) {
-        return Colors.red; // Check Out state
+        return Colors.red;
       }
-      return const Color.fromARGB(231, 175, 173, 173); // Already done
+      return const Color.fromARGB(231, 175, 173, 173);
     }
 
     String getButtonLabel() {
-      // _checkPing();
-      final checkIn = eventData['event']['custom_check_in'];
-      final checkOut = eventData['event']['custom_check_out'];
+      final checkIn = eventData['event']?['custom_check_in']?? '';
+      final checkOut = eventData['event']?['custom_check_out']?? '';
 
       if ((checkIn == null || checkIn.isEmpty) &&
           (checkOut == null || checkOut.isEmpty)) {
@@ -381,15 +546,19 @@ ScaffoldMessenger.of(context).showSnackBar(
       length: 2,
       child: Scaffold(
         appBar: AppBar(
+          iconTheme: const IconThemeData(color: Colors.white),
           title: Text('Event Details', style: TextStyle(fontSize: 20)),
-          backgroundColor: Colors.blueAccent,
+          backgroundColor: Colors.blue,
         ),
         body:
             _isLoading
                 ? Center(child: CircularProgressIndicator())
                 : RefreshIndicator(
-                  onRefresh: _fetchData,
-                  color: Colors.blueAccent,
+                  onRefresh: ()async{
+    await _checkPing(); 
+                  _fetchData();
+                  },
+                  color: Colors.blue,
                   child: Padding(
                     padding: EdgeInsets.all(16),
                     child: Column(
@@ -399,7 +568,7 @@ ScaffoldMessenger.of(context).showSnackBar(
                           mainAxisAlignment: MainAxisAlignment.start,
                           children: [
                             CircleAvatar(
-                              backgroundColor: Colors.blueAccent,
+                              backgroundColor: Colors.blue,
                               radius: 40,
                               child: Text(
                                 (eventData['reference_details'] != null &&
@@ -413,9 +582,12 @@ ScaffoldMessenger.of(context).showSnackBar(
                                     : (eventData['event']?['name']
                                                 ?.isNotEmpty ??
                                             false
-                                        ? eventData['event']['name'][0] // Removed extra `?`
+                                        ? eventData['event']['name'][0]
                                         : ''),
-                                style: TextStyle(fontSize: 18),
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  color: Colors.white,
+                                ),
                               ),
                             ),
 
@@ -490,6 +662,8 @@ ScaffoldMessenger.of(context).showSnackBar(
 
                         Container(
                           child: TabBar(
+                            labelColor: Colors.blue,
+                            indicatorColor: Colors.blue,
                             tabs: [Tab(text: 'Check In'), Tab(text: 'Details')],
                           ),
                         ),
@@ -497,10 +671,14 @@ ScaffoldMessenger.of(context).showSnackBar(
                           child: TabBarView(
                             children: [
                               RefreshIndicator(
+                                onRefresh: ()async{
 
-                                onRefresh: _fetchData,
+    await _checkPing(); 
+                                _fetchData();
+                                },
                                 child: SingleChildScrollView(
-                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
                                   padding: const EdgeInsets.all(16),
                                   child: Container(
                                     child: Column(
@@ -510,10 +688,10 @@ ScaffoldMessenger.of(context).showSnackBar(
                                         Row(
                                           mainAxisAlignment:
                                               MainAxisAlignment.center,
-                                
+
                                           children: [
                                             SizedBox(height: 250),
-                                
+
                                             GestureDetector(
                                               onTap: () async {
                                                 setState(() {
@@ -527,16 +705,17 @@ ScaffoldMessenger.of(context).showSnackBar(
                                                   );
                                                   return;
                                                 }
-                                
-                                                final userEmail = prefs.getString(
-                                                  'email',
-                                                ); // or userId
+
+                                                final userEmail = prefs
+                                                    .getString(
+                                                      'email',
+                                                    );
                                                 final eventId = widget.eventid;
                                                 String? checkIn =
                                                     eventData['event']['custom_check_in'];
                                                 String? checkOut =
                                                     eventData['event']['custom_check_out'];
-                                
+
                                                 Position position;
                                                 try {
                                                   bool serviceEnabled =
@@ -553,11 +732,13 @@ ScaffoldMessenger.of(context).showSnackBar(
                                                     );
                                                     return;
                                                   }
-                                
-                                                  LocationPermission permission =
+
+                                                  LocationPermission
+                                                  permission =
                                                       await Geolocator.checkPermission();
                                                   if (permission ==
-                                                      LocationPermission.denied) {
+                                                      LocationPermission
+                                                          .denied) {
                                                     permission =
                                                         await Geolocator.requestPermission();
                                                     if (permission ==
@@ -575,7 +756,7 @@ ScaffoldMessenger.of(context).showSnackBar(
                                                       return;
                                                     }
                                                   }
-                                
+
                                                   if (permission ==
                                                       LocationPermission
                                                           .deniedForever) {
@@ -593,24 +774,28 @@ ScaffoldMessenger.of(context).showSnackBar(
                                                   bool hasPermission =
                                                       await _handleLocationPermission();
                                                   if (!hasPermission) return;
-                                
+
                                                   position =
                                                       await Geolocator.getCurrentPosition(
                                                         desiredAccuracy:
-                                                            LocationAccuracy.high,
+                                                            LocationAccuracy
+                                                                .high,
                                                       );
-                                                  double lat = position.latitude;
-                                                  double lng = position.longitude;
+                                                  double lat =
+                                                      position.latitude;
+                                                  double lng =
+                                                      position.longitude;
                                                   final address =
                                                       await LocationHelper.getAddressFromCoordinates(
                                                         lat,
                                                         lng,
                                                       );
-                                
+
                                                   final working_hrs =
                                                       _calculateWorkingHours(
                                                         eventData['event']['custom_check_in'],
-                                                        DateTime.now().toString(),
+                                                        DateTime.now()
+                                                            .toString(),
                                                       );
                                                   if ((checkIn == null ||
                                                           checkIn.isEmpty) &&
@@ -625,70 +810,77 @@ ScaffoldMessenger.of(context).showSnackBar(
                                                           address,
                                                           context,
                                                         );
-                                    
-                                                    if (response['message'] != null)  {
-                                                    if (response['message']['status'] ==
-                                                        "success") {
-                                                      Warning.show(
-                                                        context,
-                                                        response['message']['message'],
-                                                        "Success",
-                                                      );
-                                                      await prefs.setBool(
-                                                        'with_event',
-                                                        true,
-                                                      );
-                                                      _fetchData(); // refresh
-                                                    } else if (response['message']['status'] ==
-                                                        "error") {
-                                                      Warning.show(
-                                                        context,
-                                                        response['message']['message'],
-                                                        "Error",
-                                                      );
+
+                                                    if (response['message'] !=
+                                                        null) {
+                                                      if (response['message']['status'] ==
+                                                          "success") {
+                                                        Warning.show(
+                                                          context,
+                                                          response['message']['message'],
+                                                          "Success",
+                                                        );
+                                                        await prefs.setBool(
+                                                          'with_event',
+                                                          true,
+                                                        );
+                                                        _fetchData();
+                                                        
+                                                      } else if (response['message']['status'] ==
+                                                          "error") {
+                                                        Warning.show(
+                                                          context,
+                                                          response['message']['message'],
+                                                          "Error",
+                                                        );
+                                                      }
                                                     }
-                                                          }
-                                                  } 
-                                                  else if ((checkIn != null &&
+                                                  } else if ((checkIn != null &&
                                                           checkIn.isNotEmpty) &&
                                                       (checkOut == null ||
                                                           checkOut.isEmpty)) {
+                                                    bool isOtpRequired =
+                                                        await Event.checkIfOtpRequired(
+                                                          widget.eventid,
+                                                          context,
+                                                        );
 
-                                                            bool isOtpRequired = await Event.checkIfOtpRequired(widget.eventid, context);
-                                                            print(isOtpRequired);
+                                                    if (isOtpRequired) {
+                                                      bool confirmed =
+                                                          await showOTPDialog(
+                                                            context,
+                                                          );
 
-  if (isOtpRequired) {
-    bool confirmed = await showOTPDialog(context);
+                                                      if (!confirmed) {
+                                                        Warning.show(
+                                                          context,
+                                                          "OTP verification failed. Cannot proceed.",
+                                                          "Error",
+                                                        );
+                                                        return;
+                                                      }
+                                                    }
 
-    if (!confirmed) {
-      Warning.show(context, "OTP verification failed. Cannot proceed.", "Error");
-      return;
-    }
-  }
-                                
-                                                    
-                                
-                                
                                                     LocationTrackerService.stopTracking();
                                                     double distance =
                                                         LocationTrackerService.calculateTotalDistance();
-                                
+
                                                     String
                                                     formattedDistanceWithUnit;
-                                
+
                                                     if (distance >= 1000) {
-                                                      double km = distance / 1000;
+                                                      double km =
+                                                          distance / 1000;
                                                       formattedDistanceWithUnit =
                                                           '${km.toStringAsFixed(2)} km';
                                                     } else {
                                                       formattedDistanceWithUnit =
                                                           '${distance.toStringAsFixed(2)} m';
                                                     }
-                                
+
                                                     List<LatLng> path =
                                                         LocationTrackerService.getTrackedPoints();
-                                
-                                                    // 3. Convert to JSON-friendly format
+
                                                     List<Map<String, dynamic>>
                                                     locationLogs =
                                                         path
@@ -703,13 +895,13 @@ ScaffoldMessenger.of(context).showSnackBar(
                                                               },
                                                             )
                                                             .toList();
-                                
+
                                                     final last_lat_lng =
                                                         prefs.getString(
                                                           'last_lat_lng',
                                                         ) ??
                                                         '';
-                                
+
                                                     final response =
                                                         await Event.eventCheckout(
                                                           userEmail,
@@ -725,43 +917,86 @@ ScaffoldMessenger.of(context).showSnackBar(
                                                           ),
                                                           context,
                                                         );
-                                                    if (response['message'] != null) {
-
+                                                    if (response['message'] !=
+                                                        null) {
                                                       if (response['message']['status'] ==
                                                           "success") {
                                                         LocationTrackerService.startTracking(
-                                                        start: LatLng(
-                                                          position.latitude,
-                                                          position.longitude,
-                                                        ),
-                                                      );
-                                
-                                                      Warning.show(
-                                                        context,
-                                                        response['message']['message'],
-                                                        "Success",
-                                                      );
-                                                      await prefs.setString(
-                                                        'last_checkout_address',
-                                                        address,
-                                                      );
-                                
-                                                      await prefs.setString(
-                                                        'last_lat_lng',
-                                
-                                                        '$lat,$lng',
-                                                      );
-                                
-                                                      _fetchData(); // refresh
+                                                          start: LatLng(
+                                                            position.latitude,
+                                                            position.longitude,
+                                                          ),
+                                                        );
+
+                                                        Warning.show(
+                                                          context,
+                                                          response['message']['message'],
+                                                          "Success",
+                                                        );
+                                                        await prefs.setString(
+                                                          'last_checkout_address',
+                                                          address,
+                                                        );
+
+                                                        await prefs.setString(
+                                                          'last_lat_lng',
+
+                                                          '$lat,$lng',
+                                                        );
+
+                                                        _fetchData();
+
+                                                        if (AudioRecordingService()
+                                                            .isRecording) {
+                                                          await AudioRecordingService()
+                                                              .stopRecording();
+                                                        }
+
+                                                        final paths =
+                                                            AudioRecordingService()
+                                                                .getAllRecordingPaths();
+                                                        if (paths.isNotEmpty) {
+                                                          for (final path
+                                                              in paths) {
+                                                            if (File(
+                                                              path,
+                                                            ).existsSync()) {
+                                                              await uploadAudioToERPNext(
+                                                                filePath: path,
+                                                                doctype:
+                                                                    'Event',
+                                                                docname:
+                                                                    widget
+                                                                        .eventid,
+                                                                baseUrl:
+                                                                    dotenv
+                                                                        .env['SITE_URL'] ??
+                                                                    '',
+                                                              );
+                                                            } else {
+                                                              print(
+                                                                "⚠️ Skipping missing file: $path",
+                                                              );
+                                                            }
+                                                          }
+
+                                                          AudioRecordingService()
+                                                              .resetRecordings();
+                                                        } else {
+                                                          Warning.show(
+                                                            context,
+                                                            "Audio file not found. Checkout will continue without recording.",
+                                                            "Warning",
+                                                          );
+                                                        }
+                                                      } else {
+                                                        Warning.show(
+                                                          context,
+                                                          "Already checked in and out",
+                                                          "",
+                                                        );
+                                                      }
                                                     }
-                                                   else {
-                                                    Warning.show(
-                                                      context,
-                                                      "Already checked in and out",
-                                                      "",
-                                                    );
-                                                  }
-                                                }
                                                   }
                                                 } catch (e) {
                                                   print("Location error: $e");
@@ -776,7 +1011,7 @@ ScaffoldMessenger.of(context).showSnackBar(
                                                   });
                                                 }
                                               },
-                                
+
                                               child: Stack(
                                                 alignment: Alignment.center,
                                                 children: [
@@ -825,6 +1060,106 @@ ScaffoldMessenger.of(context).showSnackBar(
                                           ],
                                         ),
                                         Text(getButtonLabel()),
+                                        if (eventData['event']?['custom_check_in'] !=
+                                                null &&
+                                            (eventData['event']?['custom_check_out'] ==
+                                                    null ||
+                                                eventData['event']?['custom_check_out']
+                                                    .isEmpty)) ...[
+                                          const SizedBox(height: 16),
+
+                                          if (_isRecording) ...[
+                                            RecordingWaveAnimation(
+                                              isRecording: true,
+                                            ),
+                                            const SizedBox(height: 10),
+                                            ElevatedButton.icon(
+                                              icon: const Icon(
+                                                Icons.stop,
+                                                color: Colors.white,
+                                                size: 20,
+                                              ),
+                                              label: const Text(
+                                                "Stop Recording",
+                                                style: TextStyle(
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor:
+                                                    Colors.redAccent,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 18,
+                                                      vertical: 10,
+                                                    ),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(25),
+                                                ),
+                                                elevation: 4,
+                                              ),
+                                              onPressed: _stopManualRecording,
+                                            ),
+                                          ] else ...[
+                                            ElevatedButton.icon(
+                                              icon: const Icon(
+                                                Icons.mic,
+                                                color: Colors.white,
+                                                size: 20,
+                                              ),
+                                              label: const Text(
+                                                "Start Recording",
+                                                style: TextStyle(
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor:
+                                                    Colors.green.shade600,
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 18,
+                                                      vertical: 10,
+                                                    ),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(25),
+                                                ),
+                                                elevation: 4,
+                                              ),
+                                              onPressed: _startManualRecording,
+                                            ),
+                                          ],
+                                        ],
+
+                                        StreamBuilder<Duration>(
+                                          stream:
+                                              AudioRecordingService()
+                                                  .timerService
+                                                  .timerStream,
+                                          builder: (context, snapshot) {
+                                            if (snapshot.connectionState ==
+                                                ConnectionState.waiting) {
+                                              return Text(
+                                                "Recording Not Yet Started",
+                                              );
+                                            } else if (snapshot.hasData) {
+                                              final duration =
+                                                  snapshot.data ??
+                                                  Duration.zero;
+                                              return Text(
+                                                _formatDuration(duration),
+                                                style: TextStyle(fontSize: 20),
+                                              );
+                                            }
+                                            return Text(
+                                              "Error fetching timer data",
+                                            );
+                                          },
+                                        ),
                                         SizedBox(height: 20),
                                         Container(
                                           padding: EdgeInsets.all(20),
@@ -833,7 +1168,7 @@ ScaffoldMessenger.of(context).showSnackBar(
                                             borderRadius: BorderRadius.circular(
                                               12.0,
                                             ),
-                                
+
                                             boxShadow: [
                                               BoxShadow(
                                                 color: Colors.black.withOpacity(
@@ -841,7 +1176,6 @@ ScaffoldMessenger.of(context).showSnackBar(
                                                 ),
                                                 blurRadius: 10,
                                                 spreadRadius: 2,
-                                                // offset: Offset(3, 5),
                                               ),
                                             ],
                                           ),
@@ -854,7 +1188,7 @@ ScaffoldMessenger.of(context).showSnackBar(
                                                   Icon(Icons.timer),
                                                   Text(
                                                     _formatTime(
-                                                      eventData['event']['custom_check_in'],
+                                                      eventData['event']?['custom_check_in']?? '',
                                                     ),
                                                   ),
                                                   Text("Check In"),
@@ -865,7 +1199,7 @@ ScaffoldMessenger.of(context).showSnackBar(
                                                   Icon(Icons.timer),
                                                   Text(
                                                     _formatTime(
-                                                      eventData['event']['custom_check_out'],
+                                                      eventData['event']?['custom_check_out']?? '',
                                                     ),
                                                   ),
                                                   Text("Check Out"),
@@ -878,11 +1212,11 @@ ScaffoldMessenger.of(context).showSnackBar(
                                                     Icon(Icons.timer),
                                                     Text(
                                                       _calculateWorkingHours(
-                                                        eventData['event']['custom_check_in'],
-                                                        eventData['event']['custom_check_out'],
+                                                        eventData['event']?['custom_check_in'] ?? '',
+                                                        eventData['event']?['custom_check_out'] ?? '',
                                                       ),
                                                     ),
-                                
+
                                                     Text("Working Hrs"),
                                                   ],
                                                 ),
@@ -896,10 +1230,14 @@ ScaffoldMessenger.of(context).showSnackBar(
                                 ),
                               ),
                               RefreshIndicator(
+                                onRefresh: ()async{
 
-                                onRefresh: _fetchData,
+    await _checkPing(); 
+                                _fetchData();
+                                },
                                 child: SingleChildScrollView(
-                                  physics: const AlwaysScrollableScrollPhysics(),
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
                                   padding: const EdgeInsets.all(16),
                                   child: Container(
                                     child: Column(
@@ -907,9 +1245,9 @@ ScaffoldMessenger.of(context).showSnackBar(
                                           CrossAxisAlignment.start,
                                       children: [
                                         SizedBox(height: 20),
-                                
+
                                         Text(
-                                          'Name:${eventData['event']['name']}',
+                                          'Name:${eventData['event']?['name']?? ''}',
                                         ),
                                         SizedBox(height: 20),
                                         Row(
@@ -944,7 +1282,9 @@ ScaffoldMessenger.of(context).showSnackBar(
                                               Row(
                                                 children: [
                                                   IconButton(
-                                                    icon: const Icon(Icons.call),
+                                                    icon: const Icon(
+                                                      Icons.call,
+                                                    ),
                                                     onPressed: () {
                                                       final phone =
                                                           eventData['reference_details'][0]['contact_mobile'];
@@ -956,7 +1296,7 @@ ScaffoldMessenger.of(context).showSnackBar(
                                                       FontAwesomeIcons.whatsapp,
                                                       color: Colors.green,
                                                     ),
-                                
+
                                                     onPressed: () {
                                                       final phone =
                                                           eventData['reference_details'][0]['contact_mobile'];
@@ -967,10 +1307,12 @@ ScaffoldMessenger.of(context).showSnackBar(
                                               ),
                                           ],
                                         ),
-                                
+
                                         SizedBox(height: 20),
-                                
-                                        Text('Title:${_getParticipantsTitles()}'),
+
+                                        Text(
+                                          'Title:${_getParticipantsTitles()}',
+                                        ),
                                         SizedBox(height: 20),
                                         Text(
                                           (eventData['reference_details'] !=
@@ -981,19 +1323,19 @@ ScaffoldMessenger.of(context).showSnackBar(
                                               : 'Product Enquired:null',
                                         ),
                                         SizedBox(height: 20),
-                                
+
                                         Text(
-                                          'Event Type:${eventData['event']['event_type']}',
+                                          'Event Type:${eventData['event']?['event_type']?? ''}',
                                         ),
                                         SizedBox(height: 20),
-                                
+
                                         Text(
-                                          'Subject:${eventData['event']['subject']}',
+                                          'Subject:${eventData['event']?['subject']?? ''}',
                                         ),
                                         SizedBox(height: 20),
-                                
+
                                         Text(
-                                          'Owner:${eventData['event']['owner']}',
+                                          'Owner:${eventData['event']?['owner']?? ''}',
                                         ),
                                       ],
                                     ),
@@ -1007,6 +1349,84 @@ ScaffoldMessenger.of(context).showSnackBar(
                     ),
                   ),
                 ),
+      ),
+    );
+  }
+}
+
+class RecordingWaveAnimation extends StatefulWidget {
+  final bool isRecording;
+
+  const RecordingWaveAnimation({super.key, required this.isRecording});
+
+  @override
+  _RecordingWaveAnimationState createState() => _RecordingWaveAnimationState();
+}
+
+class _RecordingWaveAnimationState extends State<RecordingWaveAnimation>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late List<Animation<double>> _barAnimations;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    )..repeat(reverse: true);
+
+    _barAnimations = List.generate(5, (index) {
+      final delay = index * 0.1;
+      return Tween<double>(begin: 5, end: 20).animate(
+        CurvedAnimation(
+          parent: _controller,
+          curve: Interval(delay, 1.0, curve: Curves.easeInOut),
+        ),
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant RecordingWaveAnimation oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isRecording && !_controller.isAnimating) {
+      _controller.repeat(reverse: true);
+    } else if (!widget.isRecording && _controller.isAnimating) {
+      _controller.stop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 30,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children:
+                _barAnimations.map((anim) {
+                  return Container(
+                    width: 6,
+                    height: anim.value,
+                    margin: const EdgeInsets.symmetric(horizontal: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.grey,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  );
+                }).toList(),
+          );
+        },
       ),
     );
   }

@@ -1,12 +1,14 @@
-import 'package:flutter/material.dart';
-import 'package:homegenie/utils/api/check_in_out.dart';
-import 'package:homegenie/utils/widget/warning.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:homegenie/Screen/login.dart';
 import 'package:intl/intl.dart';
-import 'package:month_picker_dialog/month_picker_dialog.dart';
+import 'package:flutter/material.dart';
+import 'package:homegenie/utils/widget/warning.dart';
+import 'package:homegenie/utils/api/check_in_out.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'event_details.dart';
-import '../utils/widget/event_list.dart';
+import 'package:month_picker_dialog/month_picker_dialog.dart';
+
 import '../utils/api/event.dart';
+import '../utils/widget/event_list.dart';
 
 class EventsPage extends StatefulWidget {
   const EventsPage({Key? key}) : super(key: key);
@@ -35,35 +37,80 @@ class _EventsPageState extends State<EventsPage> {
     _checkPing();
   }
 
+  Future<void> _checkPing() async {
+    try {
+              var connectivity = await Connectivity().checkConnectivity();
 
-Future<void> _checkPing() async {
-  try {
-    var pingResult = await Check.pingpong(); 
+    bool noInternet = false;
 
-    if (pingResult == false) {
-      Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
-    } else {
-      _searchController.addListener(_onSearchChanged);
-
-    DateTime now = DateTime.now();
-    selectedMonth = DateTime(now.year, now.month, 1);
-    selectedDate = now;
-    selectedDateIndex = now.day - 1;
-
-    _generateDays();
-
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await getEventDataForDate(DateFormat('yyyy-MM-dd').format(selectedDate));
-
-      Future.delayed(Duration(milliseconds: 50), () {
-        _scrollToSelectedDate();
-      });
-    });
+    if (connectivity == ConnectivityResult.none) {
+      noInternet = true;
     }
-  } catch (e) {
-    print('Error during ping: $e');
+
+    if (connectivity is List && connectivity.contains(ConnectivityResult.none)) {
+      noInternet = true;
+    }
+
+    if (noInternet) {
+      Warning.show(
+        context,
+        'No Internet Connection! Please check your network.',
+        'Error',
+      );
+      return;
+    }
+      var pingResult = await Check.pingpong();
+      if (pingResult == false) {
+        Warning.show(
+          context,
+          'ERP Site is not in working condition! Please try again later.',
+          'Error',
+        );
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('token') ?? "";
+        final email = prefs.getString('email') ?? "";
+
+        final sessionValid = await Check.sessionActive(token, email);
+
+        if (!sessionValid) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Session expired. Please log in again."),
+              backgroundColor: Colors.red,
+            ),
+          );
+          await prefs.clear();
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const Login()),
+            (route) => false,
+          );
+          return;
+        }
+        _searchController.addListener(_onSearchChanged);
+
+        DateTime now = DateTime.now();
+        selectedMonth = DateTime(now.year, now.month, 1);
+        selectedDate = now;
+        selectedDateIndex = now.day - 1;
+
+        _generateDays();
+
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          await getEventDataForDate(
+            DateFormat('yyyy-MM-dd').format(selectedDate),
+          );
+
+          Future.delayed(Duration(milliseconds: 50), () {
+            _scrollToSelectedDate();
+          });
+        });
+      }
+    } catch (e) {
+      print('Error during ping: $e');
+    }
   }
-}
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -82,7 +129,7 @@ Future<void> _checkPing() async {
   }
 
   void _scrollToSelectedDate() {
-    if (!_scrollController.hasClients) return; // prevents crash
+    if (!_scrollController.hasClients) return;
 
     double screenWidth = MediaQuery.of(context).size.width;
     double itemWidth = 54.0;
@@ -124,7 +171,6 @@ Future<void> _checkPing() async {
       );
       eventList = response;
       filteredEventList = eventList;
-      print("✅ Events for $date: $eventList");
     } catch (e) {
       print("❌ Error: $e");
     } finally {
@@ -191,6 +237,7 @@ Future<void> _checkPing() async {
               ? Center(child: CircularProgressIndicator())
               : RefreshIndicator(
                 onRefresh: () async {
+                  await _checkPing();
                   await getEventDataForDate(
                     DateFormat('yyyy-MM-dd').format(selectedDate),
                   );

@@ -1,11 +1,13 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
-import 'package:homegenie/Screen/history_overview.dart';
-import 'package:homegenie/utils/api/check_in_out.dart';
-import 'package:homegenie/utils/widget/warning.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:homegenie/Screen/login.dart';
 import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/api/event.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:homegenie/utils/widget/warning.dart';
+import 'package:homegenie/utils/api/check_in_out.dart';
+import 'package:homegenie/Screen/history_overview.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class HistoryList extends StatefulWidget {
   const HistoryList({super.key});
@@ -17,71 +19,165 @@ class HistoryList extends StatefulWidget {
 class _HistoryListState extends State<HistoryList> {
   List<Map<String, dynamic>> historyData = [];
   String searchQuery = '';
-  bool isLoading = true;
   String? errorMessage;
-  late SharedPreferences prefs;
-  DateTime? fromDate;
   DateTime? toDate;
+  DateTime? fromDate;
+  late SharedPreferences prefs;
+
+  bool isLoading = true;
   bool showFilterRow = false;
   bool showSearchBar = false;
 
+  
   @override
   void initState() {
     super.initState();
     _checkPing();
   }
 
-
   Future<void> _checkPing() async {
-  try {
-    var pingResult = await Check.pingpong(); 
+    try {
+              var connectivity = await Connectivity().checkConnectivity();
 
-    if (pingResult == false) {
-      Warning.show(context, 'ERP Site is not in working condition! Please try again later.', 'Error');
-    } else {
-     DateTime now = DateTime.now();
-    fromDate = DateTime(now.year, now.month, 1); // 1st of this month
-    toDate = now; // today
+    bool noInternet = false;
 
-    fetchHistoryData();
+    if (connectivity == ConnectivityResult.none) {
+      noInternet = true;
     }
+
+    if (connectivity is List && connectivity.contains(ConnectivityResult.none)) {
+      noInternet = true;
+    }
+
+    if (noInternet) {
+      Warning.show(
+        context,
+        'No Internet Connection! Please check your network.',
+        'Error',
+      );
+      return;
+    }
+      var pingResult = await Check.pingpong();
+      if (pingResult == false) {
+        Warning.show(
+          context,
+          'ERP Site is not in working condition! Please try again later.',
+          'Error',
+        );
+      } else {
+        final prefs = await SharedPreferences.getInstance();
+        final token = prefs.getString('token') ?? "";
+        final email = prefs.getString('email') ?? "";
+
+        final sessionValid = await Check.sessionActive(token, email);
+
+        if (!sessionValid) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Session expired. Please log in again."),
+              backgroundColor: Colors.red,
+            ),
+          );
+          await prefs.clear();
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const Login()),
+            (route) => false,
+          );
+          return;
+        }
+DateTime now = DateTime.now();
+        fromDate = now.subtract(const Duration(days: 1));
+        toDate = now;
+
+        fetchHistoryData();
+      }
+    } catch (e) {
+      print('Error during ping: $e');
+    }
+  }
+
+Future<void> fetchHistoryData() async {
+  try {
+    prefs = await SharedPreferences.getInstance();
+    String username = prefs.getString('email') ?? '';
+
+    final String from = DateFormat('yyyy-MM-dd').format(fromDate!);
+    final String to = DateFormat('yyyy-MM-dd').format(toDate!);
+
+    List<dynamic> response = await Event.HistoryList(
+      username,
+      from,
+      to,
+      context,
+    );
+
+    for (var entry in response) {
+      final missing = _getMissingField(entry);
+
+      if (missing != null) {
+        String field = missing['field'];
+        Map<String, dynamic> badEntry = missing['entry'];
+
+        Warning.show(
+          context,
+          "Missing required field: $field\n"
+          "Entry Name: ${badEntry['name'] ?? 'Unknown'}\n"
+          "Please correct the data.",
+          "Error",
+        );
+
+        setState(() {
+          isLoading = false;
+        });
+        return;
+      }
+    }
+
+    setState(() {
+      historyData = response.map<Map<String, dynamic>>((entry) {
+        return {
+          'remarks': entry['subject'],
+          'from_time': DateTime.parse(entry['starts_on']),
+          'to_time': DateTime.parse(entry['ends_on']),
+          'total_hours': entry['custom_duration']?? '',
+          'custom_distance': entry['custom_distance'] ?? '',
+          'name': entry['name'],
+        };
+      }).toList();
+
+      isLoading = false;
+    });
   } catch (e) {
-    print('Error during ping: $e');
+    setState(() {
+      errorMessage = e.toString();
+      isLoading = false;
+    });
   }
 }
 
 
-  Future<void> fetchHistoryData() async {
-    try {
-      prefs = await SharedPreferences.getInstance();
-      String username = prefs.getString('email') ?? '';
+Map<String, dynamic>? _getMissingField(Map<String, dynamic> entry) {
+  List<String> requiredFields = [
+    'subject',
+    'starts_on',
+    'ends_on',
+    'name',
+  ];
 
-      final String from = DateFormat('yyyy-MM-dd').format(fromDate!);
-      final String to = DateFormat('yyyy-MM-dd').format(toDate!);
+  for (var field in requiredFields) {
+    var value = entry[field];
 
-      List<dynamic> response = await Event.HistoryList(username, from, to, context);
-
-      setState(() {
-        historyData =
-            response.map<Map<String, dynamic>>((entry) {
-              return {
-                'remarks': entry['subject'],
-                'from_time': DateTime.parse(entry['starts_on']),
-                'to_time': DateTime.parse(entry['ends_on']),
-                'total_hours': entry['custom_duration'],
-                'custom_distance': entry['custom_distance'] ?? '',
-                'name': entry['name'],
-              };
-            }).toList();
-        isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        errorMessage = e.toString();
-        isLoading = false;
-      });
+    if (value == null || value.toString().trim().isEmpty) {
+      return {
+        'field': field,
+        'entry': entry,
+      };
     }
   }
+
+  return null;
+}
+
 
   double calculateTotalDistance(List<Map<String, dynamic>> data) {
     double totalMeters = 0.0;
@@ -93,10 +189,8 @@ class _HistoryListState extends State<HistoryList> {
         final value = raw.replaceAll('km', '').trim();
 
         try {
-          // Try parsing directly
           totalMeters += double.parse(value) * 1000;
         } catch (e) {
-          // Handle malformed strings like "1.18.1"
           final parts = value.split('.');
           double approx = 0.0;
           for (int i = 0; i < parts.length; i++) {
@@ -111,7 +205,7 @@ class _HistoryListState extends State<HistoryList> {
       }
     }
 
-    return totalMeters / 1000; // Return in km
+    return totalMeters / 1000;
   }
 
   @override
@@ -148,6 +242,8 @@ class _HistoryListState extends State<HistoryList> {
     final totalKm = calculateTotalDistance(filteredHistory);
     return Scaffold(
       appBar: AppBar(
+
+          iconTheme: const IconThemeData(color: Colors.white),
         backgroundColor: Colors.blue,
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -311,7 +407,11 @@ class _HistoryListState extends State<HistoryList> {
 
           Expanded(
             child: RefreshIndicator(
-              onRefresh: fetchHistoryData,
+              onRefresh: () async{
+
+                  await _checkPing();
+                  fetchHistoryData();
+                  },
               child:
                   filteredHistory.isEmpty
                       ? Center(

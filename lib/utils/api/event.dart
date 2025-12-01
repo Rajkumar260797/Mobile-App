@@ -248,7 +248,7 @@ final pingResult = await Check.pingpong();
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'Authorization': token ?? '', // 🔐 replace with real credentials
+        'Authorization': token ?? '',
       },
       body: jsonEncode({"user": user, "date": date}),
     );
@@ -338,7 +338,6 @@ final pingResult = await Check.pingpong();
       },
       headers: {'Authorization': token ?? ''},
     );
-    print(response.body);
 
     return json.decode(response.body);
   }
@@ -385,22 +384,15 @@ final pingResult = await Check.pingpong();
         'event_id': eventId,
       }),
     );
-    print(response);
-    print(response.statusCode);
-    print(response.body);
     
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      print(data['message']['status'] == 'success');
-      print("**");
       return data['message']['status'] == 'success';
     } else {
-      print("***");
       return false;
     }
   } catch (e) {
-    print("OTP verification error: $e");
     return false;
   }
 }
